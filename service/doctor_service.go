@@ -21,9 +21,9 @@ type DoctorService interface {
 }
 
 type doctorService struct {
-	doctorRepo           repository.DoctorRepository
-	doctorScheduleRepo   repository.DoctorScheduleRepository
-	appointmentRepo      repository.AppointmentRepository
+	doctorRepo         repository.DoctorRepository
+	doctorScheduleRepo repository.DoctorScheduleRepository
+	appointmentRepo    repository.AppointmentRepository
 }
 
 func NewDoctorService(

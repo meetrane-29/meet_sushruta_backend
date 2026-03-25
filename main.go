@@ -44,11 +44,17 @@ func main() {
 	patientService := service.NewPatientService(patientRepo)
 	doctorService := service.NewDoctorService(doctorRepo, doctorScheduleRepo, appointmentRepo)
 	appointmentService := service.NewAppointmentService(appointmentRepo, patientRepo, doctorRepo)
+	prescriptionService := service.NewPrescriptionService()
+	pharmacyService := service.NewPharmacyService()
+	labService := service.NewLabService()
 
 	// Initialize handlers
 	patientHandler := handler.NewPatientHandler(patientService)
 	doctorHandler := handler.NewDoctorHandler(doctorService)
 	appointmentHandler := handler.NewAppointmentHandler(appointmentService)
+	prescriptionHandler := handler.NewPrescriptionHandler(prescriptionService)
+	pharmacyHandler := handler.NewPharmacyHandler(pharmacyService)
+	labHandler := handler.NewLabHandler(labService)
 
 	// Add routes
 	v1 := router.Group("/api/v1")
@@ -92,6 +98,34 @@ func main() {
 				appointments.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAppointment)
 				appointments.PATCH("/:id/status", middleware.RequireRole("admin", "doctor"), appointmentHandler.UpdateAppointmentStatus)
 				appointments.PATCH("/:id/vitals", middleware.RequireRole("nurse"), appointmentHandler.UpdateAppointmentVitals)
+			}
+
+			// Prescription routes
+			prescriptions := protected.Group("/prescriptions")
+			{
+				prescriptions.POST("", middleware.RequireRole("admin", "doctor"), prescriptionHandler.CreatePrescription)
+				prescriptions.GET("", middleware.RequireRole("admin", "doctor", "nurse", "pharmacist"), prescriptionHandler.ListPrescriptions)
+				prescriptions.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "pharmacist", "patient"), prescriptionHandler.GetPrescription)
+				prescriptions.PATCH("/:id/status", middleware.RequireRole("admin", "doctor"), prescriptionHandler.UpdatePrescriptionStatus)
+				prescriptions.GET("/patient/:patient_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), prescriptionHandler.GetPatientPrescriptions)
+			}
+
+			// Pharmacy routes
+			pharmacy := protected.Group("/pharmacy")
+			{
+				pharmacy.POST("/dispense", middleware.RequireRole("admin", "pharmacist"), pharmacyHandler.Dispense)
+				pharmacy.GET("/dispense/:prescription_id", middleware.RequireRole("admin", "doctor", "pharmacist"), pharmacyHandler.GetDispenseHistory)
+			}
+
+			// Lab routes
+			lab := protected.Group("/lab")
+			{
+				lab.POST("/orders", middleware.RequireRole("admin", "doctor"), labHandler.CreateOrder)
+				lab.GET("/orders", middleware.RequireRole("admin", "doctor", "nurse"), labHandler.ListOrders)
+				lab.GET("/orders/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), labHandler.GetOrder)
+				lab.PATCH("/orders/:id/status", middleware.RequireRole("admin", "nurse"), labHandler.UpdateStatus)
+				lab.POST("/orders/:id/report", middleware.RequireRole("admin", "nurse"), labHandler.UploadReport)
+				lab.GET("/patients/:patient_id/orders", middleware.RequireRole("admin", "doctor", "nurse", "patient"), labHandler.GetPatientLabOrders)
 			}
 		}
 	}
