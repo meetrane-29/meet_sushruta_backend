@@ -10,13 +10,16 @@ type Medicine struct {
 	Name              string         `gorm:"uniqueIndex;not null" json:"name"`
 	GenericName       string         `gorm:"index" json:"generic_name"`
 	Dosage            string         `gorm:"not null" json:"dosage"` // e.g., "500mg"
+	Composition       string         `gorm:"type:text" json:"composition"`
 	Manufacturer      string         `json:"manufacturer"`
+	BatchNumber       string         `json:"batch_number"`
+	ExpiryDate        string         `gorm:"index" json:"expiry_date"` // Format: YYYY-MM-DD
 	Description       string         `gorm:"type:text" json:"description"`
 	Instructions      string         `gorm:"type:text" json:"instructions"`
 	SideEffects       string         `gorm:"type:text" json:"side_effects"`
 	Contraindications string         `gorm:"type:text" json:"contraindications"`
 	StockQuantity     int            `gorm:"default:0;index" json:"stock_quantity"`
-	ReorderLevel      int            `json:"reorder_level"`
+	ReorderLevel      int            `gorm:"default:10" json:"reorder_level"`
 	Price             float64        `gorm:"not null" json:"price"`
 	Active            bool           `gorm:"default:true;index" json:"active"`
 	CreatedAt         int64          `gorm:"autoCreateTime:milli" json:"created_at"`

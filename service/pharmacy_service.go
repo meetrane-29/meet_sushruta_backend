@@ -3,9 +3,11 @@ package service
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"meet_sushruta/config"
 	"meet_sushruta/model"
+	"meet_sushruta/repository"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -22,14 +24,172 @@ func (e ErrInsufficientStock) Error() string {
 }
 
 type PharmacyService interface {
+	// Medicine CRUD operations
+	CreateMedicine(medicine *model.Medicine) error
+	GetMedicine(id uuid.UUID) (*model.Medicine, error)
+	ListMedicines(page, limit int, search string) ([]model.Medicine, int64, error)
+	UpdateMedicine(medicine *model.Medicine) error
+	DeleteMedicine(id uuid.UUID) error
+
+	// Stock management
+	AddStock(medicineID uuid.UUID, quantity int, reason string) error
+	RemoveStock(medicineID uuid.UUID, quantity int, reason string) error
+	GetLowStockMedicines(page, limit int) ([]model.Medicine, int64, error)
+	GetExpiringMedicines(page, limit int) ([]model.Medicine, int64, error)
+
+	// Dispensing
 	Dispense(prescriptionID, staffID uuid.UUID) error
-	GetDispenseHistory(prescriptionID uuid.UUID) (map[string]interface{}, error)
+	GetDispenseHistory(prescriptionID uuid.UUID) ([]model.DispenseHistory, error)
 }
 
-type pharmacyService struct{}
+type pharmacyService struct {
+	medicineRepo repository.MedicineRepository
+}
 
-func NewPharmacyService() PharmacyService {
-	return &pharmacyService{}
+func NewPharmacyService(medicineRepo repository.MedicineRepository) PharmacyService {
+	return &pharmacyService{
+		medicineRepo: medicineRepo,
+	}
+}
+
+// CreateMedicine creates a new medicine entry
+func (s *pharmacyService) CreateMedicine(medicine *model.Medicine) error {
+	if medicine == nil {
+		return errors.New("medicine cannot be nil")
+	}
+
+	if medicine.Name == "" {
+		return errors.New("medicine name is required")
+	}
+
+	if medicine.Price <= 0 {
+		return errors.New("medicine price must be greater than 0")
+	}
+
+	if medicine.ReorderLevel <= 0 {
+		medicine.ReorderLevel = 10 // Default reorder level
+	}
+
+	return s.medicineRepo.Create(medicine)
+}
+
+// GetMedicine retrieves a medicine by ID
+func (s *pharmacyService) GetMedicine(id uuid.UUID) (*model.Medicine, error) {
+	if id == uuid.Nil {
+		return nil, errors.New("medicine id is required")
+	}
+
+	return s.medicineRepo.GetByID(id)
+}
+
+// ListMedicines retrieves all active medicines with pagination
+func (s *pharmacyService) ListMedicines(page, limit int, search string) ([]model.Medicine, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	return s.medicineRepo.GetAll(page, limit, search)
+}
+
+// UpdateMedicine updates medicine details
+func (s *pharmacyService) UpdateMedicine(medicine *model.Medicine) error {
+	if medicine == nil {
+		return errors.New("medicine cannot be nil")
+	}
+
+	if medicine.ID == uuid.Nil {
+		return errors.New("medicine id is required")
+	}
+
+	if medicine.Name == "" {
+		return errors.New("medicine name is required")
+	}
+
+	if medicine.Price <= 0 {
+		return errors.New("medicine price must be greater than 0")
+	}
+
+	return s.medicineRepo.Update(medicine)
+}
+
+// DeleteMedicine soft deletes a medicine
+func (s *pharmacyService) DeleteMedicine(id uuid.UUID) error {
+	if id == uuid.Nil {
+		return errors.New("medicine id is required")
+	}
+
+	return s.medicineRepo.SoftDelete(id)
+}
+
+// AddStock adds quantity to medicine stock
+func (s *pharmacyService) AddStock(medicineID uuid.UUID, quantity int, reason string) error {
+	if medicineID == uuid.Nil {
+		return errors.New("medicine id is required")
+	}
+
+	if quantity <= 0 {
+		return errors.New("quantity must be greater than 0")
+	}
+
+	if reason == "" {
+		reason = "stock_addition"
+	}
+
+	return s.medicineRepo.UpdateStock(medicineID, quantity)
+}
+
+// RemoveStock removes quantity from medicine stock
+func (s *pharmacyService) RemoveStock(medicineID uuid.UUID, quantity int, reason string) error {
+	if medicineID == uuid.Nil {
+		return errors.New("medicine id is required")
+	}
+
+	if quantity <= 0 {
+		return errors.New("quantity must be greater than 0")
+	}
+
+	if reason == "" {
+		reason = "stock_removal"
+	}
+
+	// Check if sufficient stock exists
+	medicine, err := s.medicineRepo.GetByID(medicineID)
+	if err != nil {
+		return errors.New("medicine not found")
+	}
+
+	if medicine.StockQuantity < quantity {
+		return ErrInsufficientStock{MedicineName: medicine.Name}
+	}
+
+	return s.medicineRepo.UpdateStock(medicineID, -quantity)
+}
+
+// GetLowStockMedicines retrieves medicines below reorder level
+func (s *pharmacyService) GetLowStockMedicines(page, limit int) ([]model.Medicine, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	return s.medicineRepo.GetLowStock(10, page, limit)
+}
+
+// GetExpiringMedicines retrieves medicines expiring within 30 days
+func (s *pharmacyService) GetExpiringMedicines(page, limit int) ([]model.Medicine, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	return s.medicineRepo.GetExpiring(30, page, limit)
 }
 
 // Dispense handles the medication dispensing process with stock management
@@ -73,13 +233,36 @@ func (s *pharmacyService) Dispense(prescriptionID, staffID uuid.UUID) error {
 			}
 		}
 
-		// Update medicine stock
+		// Update medicine stock and create dispense history for each item
+		now := time.Now().UnixMilli()
 		for _, item := range items {
 			medicine := &model.Medicine{}
+			if err := tx.Where("id = ?", item.MedicineID).First(medicine).Error; err != nil {
+				return fmt.Errorf("medicine not found: %w", err)
+			}
+
+			// Update stock
 			if err := tx.Model(medicine).
 				Where("id = ?", item.MedicineID).
 				Update("stock_quantity", gorm.Expr("stock_quantity - ?", item.Quantity)).Error; err != nil {
 				return fmt.Errorf("failed to update medicine stock: %w", err)
+			}
+
+			// Create dispense history
+			history := &model.DispenseHistory{
+				PrescriptionID: prescriptionID,
+				MedicineID:     item.MedicineID,
+				Quantity:       item.Quantity,
+				UnitPrice:      medicine.Price,
+				TotalPrice:     medicine.Price * float64(item.Quantity),
+				DispensedBy:    staffID,
+				DispensedAt:    now,
+				BatchNumber:    medicine.BatchNumber,
+				ExpiryDate:     medicine.ExpiryDate,
+			}
+
+			if err := tx.Create(history).Error; err != nil {
+				return fmt.Errorf("failed to create dispense history: %w", err)
 			}
 		}
 
@@ -101,38 +284,13 @@ func (s *pharmacyService) Dispense(prescriptionID, staffID uuid.UUID) error {
 	return nil
 }
 
-// GetDispenseHistory retrieves dispensing information for a prescription
-func (s *pharmacyService) GetDispenseHistory(prescriptionID uuid.UUID) (map[string]interface{}, error) {
+// GetDispenseHistory retrieves dispense records for a prescription
+func (s *pharmacyService) GetDispenseHistory(prescriptionID uuid.UUID) ([]model.DispenseHistory, error) {
 	if prescriptionID == uuid.Nil {
-		return nil, errors.New("invalid prescription_id")
+		return nil, errors.New("prescription_id is required")
 	}
 
-	db := config.GetDB()
-	prescription := &model.Prescription{}
-
-	if err := db.Where("id = ?", prescriptionID).
-		First(prescription).Error; err != nil {
-		return nil, errors.New("prescription not found")
-	}
-
-	// Get prescription items
-	var items []model.PrescriptionItem
-	if err := db.Preload("Medicine").
-		Where("prescription_id = ?", prescriptionID).
-		Find(&items).Error; err != nil {
-		return nil, errors.New("failed to get prescription items")
-	}
-
-	result := map[string]interface{}{
-		"prescription_id": prescription.ID,
-		"patient_id":      prescription.PatientID,
-		"doctor_id":       prescription.DoctorID,
-		"status":          prescription.Status,
-		"issued_at":       prescription.IssuedAt,
-		"items":           items,
-	}
-
-	return result, nil
+	return s.medicineRepo.GetDispenseHistoryByPrescriptionID(prescriptionID)
 }
 
 // checkAndNotifyReorderLevels checks medicine stock levels and notifies if below threshold

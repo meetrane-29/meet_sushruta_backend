@@ -45,6 +45,7 @@ func AutoMigrate() error {
 		&model.PrescriptionItem{},
 		&model.LabRequest{},
 		&model.Bill{},
+		&model.BillItem{},
 		&model.Bed{},
 		&model.AuditLog{},
 		&model.Notification{},

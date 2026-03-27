@@ -69,10 +69,17 @@ func (h *DoctorHandler) CreateDoctor(c *gin.Context) {
 
 // GetAllDoctors retrieves all doctors with pagination
 // GET /api/v1/doctors
+// Supports search by name, specialization, or slug
 func (h *DoctorHandler) GetAllDoctors(c *gin.Context) {
 	page := 1
 	limit := 10
 	search := c.Query("search")
+	slug := c.Query("slug")
+
+	// If slug is provided, use it as search term
+	if slug != "" {
+		search = slug
+	}
 
 	if p := c.Query("page"); p != "" {
 		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
@@ -86,18 +93,13 @@ func (h *DoctorHandler) GetAllDoctors(c *gin.Context) {
 		}
 	}
 
-	doctors, total, err := h.doctorService.ListDoctors(page, limit, search)
+	doctors, _, err := h.doctorService.ListDoctors(page, limit, search)
 	if err != nil {
 		utils.Fail(c, 500, err.Error())
 		return
 	}
 
-	utils.OK(c, gin.H{
-		"doctors": doctors,
-		"total":   total,
-		"page":    page,
-		"limit":   limit,
-	})
+	utils.OK(c, doctors)
 }
 
 // GetDoctor retrieves a doctor by ID

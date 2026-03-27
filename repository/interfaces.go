@@ -43,3 +43,31 @@ type DoctorScheduleRepository interface {
 	GetByDoctorID(doctorID uuid.UUID) ([]model.DoctorSchedule, error)
 	GetByDoctorAndDay(doctorID uuid.UUID, dayOfWeek string) (*model.DoctorSchedule, error)
 }
+
+// BillingRepository defines methods for bill data access
+type BillingRepository interface {
+	Create(bill *model.Bill) error
+	GetByID(id uuid.UUID) (*model.Bill, error)
+	GetAll(page, limit int) ([]model.Bill, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.Bill, int64, error)
+	GetByStatus(status string, page, limit int) ([]model.Bill, int64, error)
+	GetByDateRange(startDate, endDate string, page, limit int) ([]model.Bill, int64, error)
+	Update(bill *model.Bill) error
+	SoftDelete(id uuid.UUID) error
+	CreateBillItem(billItem *model.BillItem) error
+	GetBillItems(billID uuid.UUID) ([]model.BillItem, error)
+}
+
+// MedicineRepository defines methods for medicine data access
+type MedicineRepository interface {
+	Create(medicine *model.Medicine) error
+	GetByID(id uuid.UUID) (*model.Medicine, error)
+	GetAll(page, limit int, search string) ([]model.Medicine, int64, error)
+	Update(medicine *model.Medicine) error
+	SoftDelete(id uuid.UUID) error
+	GetLowStock(reorderLevel int, page, limit int) ([]model.Medicine, int64, error)
+	GetExpiring(daysThreshold int, page, limit int) ([]model.Medicine, int64, error)
+	UpdateStock(medicineID uuid.UUID, quantity int) error
+	CreateDispenseHistory(history *model.DispenseHistory) error
+	GetDispenseHistoryByPrescriptionID(prescriptionID uuid.UUID) ([]model.DispenseHistory, error)
+}
