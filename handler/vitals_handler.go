@@ -195,3 +195,81 @@ func (h *VitalsHandler) DeleteVitals(c *gin.Context) {
 
 	utils.OK(c, gin.H{"message": "vitals record deleted successfully"})
 }
+
+// GetVitalsTrend retrieves vitals trend for a patient
+// GET /api/v1/vitals/patient/:patient_id/trend
+// Query params:
+//   - days: number of days to analyze (default 7)
+func (h *VitalsHandler) GetVitalsTrend(c *gin.Context) {
+	patientIDStr := c.Param("patient_id")
+	patientID, err := uuid.Parse(patientIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid patient id")
+		return
+	}
+
+	days := 7
+	if d := c.Query("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 && parsed <= 90 {
+			days = parsed
+		}
+	}
+
+	trend, err := h.vitalsService.GetVitalsTrend(patientID, days)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	utils.OK(c, trend)
+}
+
+// GetVitalsAlerts retrieves abnormal readings for a patient
+// GET /api/v1/vitals/patient/:patient_id/alerts
+func (h *VitalsHandler) GetVitalsAlerts(c *gin.Context) {
+	patientIDStr := c.Param("patient_id")
+	patientID, err := uuid.Parse(patientIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid patient id")
+		return
+	}
+
+	alerts, err := h.vitalsService.GetVitalsAlerts(patientID)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	if alerts == nil {
+		alerts = []map[string]interface{}{}
+	}
+
+	utils.OK(c, gin.H{
+		"patient_id": patientID.String(),
+		"alerts":     alerts,
+		"critical":   countCriticalAlerts(alerts),
+		"warning":    countWarningAlerts(alerts),
+	})
+}
+
+// Helper function to count critical alerts
+func countCriticalAlerts(alerts []map[string]interface{}) int {
+	count := 0
+	for _, alert := range alerts {
+		if severity, ok := alert["severity"].(string); ok && severity == "critical" {
+			count++
+		}
+	}
+	return count
+}
+
+// Helper function to count warning alerts
+func countWarningAlerts(alerts []map[string]interface{}) int {
+	count := 0
+	for _, alert := range alerts {
+		if severity, ok := alert["severity"].(string); ok && severity == "medium" {
+			count++
+		}
+	}
+	return count
+}

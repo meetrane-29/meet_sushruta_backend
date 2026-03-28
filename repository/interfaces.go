@@ -121,3 +121,53 @@ type OperationScheduleRepository interface {
 	GetUpcomingOperations(daysAhead int) ([]model.OperationSchedule, error)
 	GetOperationStats() (map[string]interface{}, error)
 }
+
+// AdmissionRepository defines methods for admission record data access
+type AdmissionRepository interface {
+	Create(admission *model.AdmissionRecord) error
+	GetByID(id uuid.UUID) (*model.AdmissionRecord, error)
+	GetAll(page, limit int) ([]model.AdmissionRecord, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.AdmissionRecord, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.AdmissionRecord, int64, error)
+	GetActiveByPatientID(patientID uuid.UUID) (*model.AdmissionRecord, error)
+	GetActiveByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.AdmissionRecord, int64, error)
+	Update(admission *model.AdmissionRecord) error
+	SoftDelete(id uuid.UUID) error
+}
+
+// ProgressNoteRepository defines methods for progress note data access
+type ProgressNoteRepository interface {
+	Create(note *model.ProgressNote) error
+	GetByID(id uuid.UUID) (*model.ProgressNote, error)
+	GetAll(page, limit int) ([]model.ProgressNote, int64, error)
+	GetByAdmissionID(admissionID uuid.UUID, page, limit int) ([]model.ProgressNote, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.ProgressNote, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.ProgressNote, int64, error)
+	Update(note *model.ProgressNote) error
+	SoftDelete(id uuid.UUID) error
+}
+
+// NurseInstructionRepository defines methods for nurse instruction data access
+type NurseInstructionRepository interface {
+	Create(instruction *model.NurseInstruction) error
+	GetByID(id uuid.UUID) (*model.NurseInstruction, error)
+	GetAll(page, limit int) ([]model.NurseInstruction, int64, error)
+	GetByAdmissionID(admissionID uuid.UUID, page, limit int) ([]model.NurseInstruction, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.NurseInstruction, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.NurseInstruction, int64, error)
+	GetLatestByAdmissionID(admissionID uuid.UUID) (*model.NurseInstruction, error)
+	Update(instruction *model.NurseInstruction) error
+	SoftDelete(id uuid.UUID) error
+}
+
+// DischargeSummaryRepository defines methods for discharge summary data access
+type DischargeSummaryRepository interface {
+	Create(summary *model.DischargeSummary) error
+	GetByID(id uuid.UUID) (*model.DischargeSummary, error)
+	GetAll(page, limit int) ([]model.DischargeSummary, int64, error)
+	GetByAdmissionID(admissionID uuid.UUID) (*model.DischargeSummary, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.DischargeSummary, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.DischargeSummary, int64, error)
+	Update(summary *model.DischargeSummary) error
+	SoftDelete(id uuid.UUID) error
+}

@@ -54,6 +54,11 @@ func AutoMigrate() error {
 		&model.MedicalEquipment{},
 		&model.OperationTheatre{},
 		&model.OperationSchedule{},
+		&model.DispenseHistory{},
+		&model.AdmissionRecord{},
+		&model.ProgressNote{},
+		&model.NurseInstruction{},
+		&model.DischargeSummary{},
 	}
 
 	if err := DB.AutoMigrate(models...); err != nil {

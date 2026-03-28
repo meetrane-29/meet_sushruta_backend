@@ -14,6 +14,7 @@ import (
 type DoctorService interface {
 	CreateDoctor(doctor *model.Doctor) error
 	GetDoctor(id uuid.UUID) (*model.Doctor, error)
+	GetDoctorByUserID(userID uuid.UUID) (*model.Doctor, error)
 	ListDoctors(page, limit int, search string) ([]model.Doctor, int64, error)
 	UpdateDoctor(doctor *model.Doctor) error
 	SoftDeleteDoctor(id uuid.UUID) error
@@ -69,6 +70,19 @@ func (s *doctorService) GetDoctor(id uuid.UUID) (*model.Doctor, error) {
 	}
 
 	doctor, err := s.doctorRepo.GetByID(id)
+	if err != nil {
+		return nil, errors.New("doctor not found")
+	}
+
+	return doctor, nil
+}
+
+func (s *doctorService) GetDoctorByUserID(userID uuid.UUID) (*model.Doctor, error) {
+	if userID == uuid.Nil {
+		return nil, errors.New("invalid user id")
+	}
+
+	doctor, err := s.doctorRepo.GetByUserID(userID)
 	if err != nil {
 		return nil, errors.New("doctor not found")
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 
 	"meet_sushruta/config"
 	"meet_sushruta/handler"
@@ -65,6 +66,10 @@ func main() {
 	medicalEquipmentRepo := repository.NewMedicalEquipmentRepository(config.DB)
 	operationTheatreRepo := repository.NewOperationTheatreRepository(config.DB)
 	operationScheduleRepo := repository.NewOperationScheduleRepository(config.DB)
+	admissionRepo := repository.NewAdmissionRepository()
+	progressNoteRepo := repository.NewProgressNoteRepository()
+	nurseInstructionRepo := repository.NewNurseInstructionRepository()
+	dischargeSummaryRepo := repository.NewDischargeSummaryRepository()
 
 	// Initialize services
 	patientService := service.NewPatientService(patientRepo)
@@ -78,6 +83,7 @@ func main() {
 	billingService := service.NewBillingService(billingRepo, patientRepo)
 	adminService := service.NewAdminService(adminRepo, bedRepo, medicalEquipmentRepo, operationTheatreRepo, operationScheduleRepo)
 	vitalsService := service.NewVitalsService(vitalsRepo)
+	bedService := service.NewBedService(bedRepo)
 	specializationService := service.NewSpecializationService(specializationRepo)
 	hospitalService := service.NewHospitalService(hospitalRepo)
 
@@ -88,7 +94,7 @@ func main() {
 	// Initialize handlers
 	patientHandler := handler.NewPatientHandler(patientService)
 	nurseHandler := handler.NewNurseHandler(nurseService)
-	doctorHandler := handler.NewDoctorHandler(doctorService)
+	doctorHandler := handler.NewDoctorHandler(doctorService, admissionRepo, progressNoteRepo, nurseInstructionRepo, dischargeSummaryRepo)
 	appointmentHandler := handler.NewAppointmentHandler(appointmentService, patientRepo, doctorRepo)
 	prescriptionHandler := handler.NewPrescriptionHandler(prescriptionService)
 	pharmacyHandler := handler.NewPharmacyHandler(pharmacyService)
@@ -96,6 +102,7 @@ func main() {
 	billingHandler := handler.NewBillingHandler(billingService)
 	adminHandler := handler.NewAdminHandler(adminService)
 	vitalsHandler := handler.NewVitalsHandler(vitalsService)
+	bedHandler := handler.NewBedHandler(bedService)
 	specializationHandler := handler.NewSpecializationHandler(specializationService)
 	hospitalHandler := handler.NewHospitalHandler(hospitalService)
 
@@ -174,15 +181,19 @@ func main() {
 				vitals.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), vitalsHandler.GetVitalsByID)
 				vitals.PATCH("/:id", middleware.RequireRole("admin", "nurse"), vitalsHandler.UpdateVitals)
 				vitals.DELETE("/:id", middleware.RequireRole("admin"), vitalsHandler.DeleteVitals)
+				vitals.GET("/patient/:patient_id/trend", middleware.RequireRole("admin", "doctor", "nurse", "patient"), vitalsHandler.GetVitalsTrend)
+				vitals.GET("/patient/:patient_id/alerts", middleware.RequireRole("admin", "doctor", "nurse"), vitalsHandler.GetVitalsAlerts)
 			}
 
 			// Doctor management routes (protected)
 			doctors := protected.Group("/doctors")
 			{
+				doctors.GET("/me", doctorHandler.GetMe)
 				doctors.POST("", middleware.RequireRole("admin"), doctorHandler.CreateDoctor)
 				doctors.PATCH("/:id", middleware.RequireRole("admin"), doctorHandler.UpdateDoctor)
 				doctors.DELETE("/:id", middleware.RequireRole("admin"), doctorHandler.DeleteDoctor)
 				doctors.GET("/:id/slots", doctorHandler.GetAvailableSlots)
+				doctors.GET("/ipd-patients", middleware.RequireRole("doctor"), doctorHandler.GetIPDPatients)
 			}
 
 			// Nurse management routes (protected)
@@ -279,6 +290,70 @@ func main() {
 				hospitals.PATCH("/:id", middleware.RequireRole("admin"), hospitalHandler.UpdateHospital)
 				hospitals.DELETE("/:id", middleware.RequireRole("admin"), hospitalHandler.DeleteHospital)
 			}
+
+			// Bed management routes
+			beds := protected.Group("/beds")
+			{
+				beds.GET("/stats", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedStats)
+				beds.GET("/available", middleware.RequireRole("admin", "nurse"), bedHandler.GetAvailableBeds)
+				beds.GET("/patient/:patient_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), bedHandler.GetPatientBed)
+				beds.GET("/ward/:ward", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedsByWard)
+				beds.GET("/ward/:ward/stats", middleware.RequireRole("admin", "nurse"), bedHandler.GetWardStats)
+				beds.GET("/status/:status", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedsByStatus)
+				beds.POST("/admit", middleware.RequireRole("admin", "nurse"), bedHandler.AdmitPatient)
+				beds.POST("/discharge", middleware.RequireRole("admin", "nurse"), bedHandler.DischargePatient)
+				beds.PATCH("/:id/status", middleware.RequireRole("admin", "nurse"), bedHandler.UpdateBedStatus)
+			}
+
+			// Admission records - IPD management
+			admissions := protected.Group("/admissions")
+			{
+				admissions.POST("", middleware.RequireRole("admin", "doctor"), doctorHandler.CreateAdmission)
+				admissions.GET("", middleware.RequireRole("admin", "doctor", "nurse"), func(c *gin.Context) {
+					page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+					limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+					data, total, err := admissionRepo.GetAll(page, limit)
+					if err != nil {
+						c.JSON(500, gin.H{"error": err.Error()})
+						return
+					}
+					c.JSON(200, gin.H{"data": data, "total": total})
+				})
+			}
+
+			// Progress notes - daily SOAP notes for admitted patients
+			progressNotes := protected.Group("/progress-notes")
+			{
+				progressNotes.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateProgressNote)
+				// Add GET endpoints as needed
+			}
+
+			// Nurse instructions for admitted patients
+			nurseInstructions := protected.Group("/nurse-instructions")
+			{
+				nurseInstructions.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateNurseInstruction)
+				// Add GET endpoints as needed
+			}
+
+			// Discharge summaries
+			dischargeSummaries := protected.Group("/discharge-summaries")
+			{
+				dischargeSummaries.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateDischargeSummary)
+				// Add GET endpoints as needed
+			}
+
+			// Debug route - check current user's role
+			protected.GET("/debug/whoami", func(c *gin.Context) {
+				userID, _ := c.Get("userID")
+				role, _ := c.Get("role")
+				email, _ := c.Get("email")
+				c.JSON(200, gin.H{
+					"user_id":   userID,
+					"email":     email,
+					"role":      role,
+					"role_type": fmt.Sprintf("%T", role),
+				})
+			})
 		}
 	}
 

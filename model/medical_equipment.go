@@ -12,12 +12,12 @@ type MedicalEquipment struct {
 	Model               string         `json:"model"`
 	SerialNumber        string         `json:"serial_number"`
 	Manufacturer        string         `json:"manufacturer"`
-	PurchaseDate        string         `json:"purchase_date"`                         // YYYY-MM-DD
-	WarrantyExpiryDate  string         `json:"warranty_expiry_date"`                  // YYYY-MM-DD
-	Location            string         `gorm:"index" json:"location"`                 // Ward, OT, Room number, etc.
-	Status              string         `gorm:"default:'working';index" json:"status"` // working, under_maintenance, repair, retired
-	MaintenanceLastDate string         `json:"maintenance_last_date"`                 // YYYY-MM-DD
-	MaintenanceNextDate string         `json:"maintenance_next_date"`                 // YYYY-MM-DD
+	PurchaseDate        string         `json:"purchase_date"`                                                                                             // YYYY-MM-DD
+	WarrantyExpiryDate  string         `json:"warranty_expiry_date"`                                                                                      // YYYY-MM-DD
+	Location            string         `gorm:"index" json:"location"`                                                                                     // Ward, OT, Room number, etc.
+	Status              string         `gorm:"default:'working';index:idx_status,index:idx_deleted_status,type:btree;composite:priority:2" json:"status"` // working, under_maintenance, repair, retired
+	MaintenanceLastDate string         `json:"maintenance_last_date"`                                                                                     // YYYY-MM-DD
+	MaintenanceNextDate string         `json:"maintenance_next_date"`                                                                                     // YYYY-MM-DD
 	MaintenanceNotes    string         `gorm:"type:text" json:"maintenance_notes"`
 	RepairNotes         string         `gorm:"type:text" json:"repair_notes"`
 	TechniciansAssigned string         `json:"technicians_assigned"` // Comma-separated names/IDs
@@ -30,7 +30,7 @@ type MedicalEquipment struct {
 	Notes               string         `gorm:"type:text" json:"notes"`
 	CreatedAt           int64          `gorm:"autoCreateTime:milli" json:"created_at"`
 	UpdatedAt           int64          `gorm:"autoUpdateTime:milli" json:"updated_at"`
-	DeletedAt           gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	DeletedAt           gorm.DeletedAt `gorm:"index,index:idx_deleted_status,type:btree;composite:priority:1" json:"deleted_at"`
 }
 
 func (MedicalEquipment) TableName() string {
