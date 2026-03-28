@@ -21,7 +21,9 @@ func (r *appointmentRepository) GetByID(id uuid.UUID) (*model.Appointment, error
 	var appointment model.Appointment
 	err := config.DB.Where("id = ?", id).
 		Preload("Patient").
+		Preload("Patient.User").
 		Preload("Doctor").
+		Preload("Doctor.User").
 		First(&appointment).Error
 	if err != nil {
 		return nil, err
@@ -43,7 +45,9 @@ func (r *appointmentRepository) GetAll(page, limit int) ([]model.Appointment, in
 
 	// Fetch paginated results
 	err := query.Preload("Patient").
+		Preload("Patient.User").
 		Preload("Doctor").
+		Preload("Doctor.User").
 		Offset(offset).
 		Limit(limit).
 		Order("appointment_date DESC, appointment_time DESC").
@@ -77,7 +81,9 @@ func (r *appointmentRepository) GetByPatientID(patientID uuid.UUID, page, limit 
 
 	// Fetch paginated results
 	err := query.Preload("Patient").
+		Preload("Patient.User").
 		Preload("Doctor").
+		Preload("Doctor.User").
 		Offset(offset).
 		Limit(limit).
 		Order("appointment_date DESC, appointment_time DESC").
@@ -100,7 +106,9 @@ func (r *appointmentRepository) GetByDoctorID(doctorID uuid.UUID, page, limit in
 
 	// Fetch paginated results
 	err := query.Preload("Patient").
+		Preload("Patient.User").
 		Preload("Doctor").
+		Preload("Doctor.User").
 		Offset(offset).
 		Limit(limit).
 		Order("appointment_date DESC, appointment_time DESC").
@@ -114,7 +122,9 @@ func (r *appointmentRepository) GetByDateRange(doctorID uuid.UUID, startDate, en
 	err := config.DB.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?",
 		doctorID, startDate, endDate).
 		Preload("Patient").
+		Preload("Patient.User").
 		Preload("Doctor").
+		Preload("Doctor.User").
 		Order("appointment_date ASC, appointment_time ASC").
 		Find(&appointments).Error
 

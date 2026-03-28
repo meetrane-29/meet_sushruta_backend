@@ -10,12 +10,15 @@ import (
 type AdminRepository interface {
 	GetTotalPatients() (int64, error)
 	GetTotalDoctors() (int64, error)
+	GetTotalNurses() (int64, error)
 	GetTotalUsers() (int64, error)
 	GetTodayAppointments() (int64, error)
 	GetPendingBills() (int64, error)
 	GetRecentPatients() ([]map[string]interface{}, error)
 	GetTopDoctorsByAppointmentsToday() ([]map[string]interface{}, error)
 	GetDepartmentLoad() ([]map[string]interface{}, error)
+	GetTodayAppointmentsByDoctor() ([]map[string]interface{}, error)
+	GetNurseRoleBreakdown() ([]map[string]interface{}, error)
 }
 
 type adminRepository struct{}
@@ -35,6 +38,13 @@ func (r *adminRepository) GetTotalPatients() (int64, error) {
 func (r *adminRepository) GetTotalDoctors() (int64, error) {
 	var count int64
 	err := config.DB.Model(&model.Doctor{}).Count(&count).Error
+	return count, err
+}
+
+// GetTotalNurses returns count of total nurses
+func (r *adminRepository) GetTotalNurses() (int64, error) {
+	var count int64
+	err := config.DB.Model(&model.Nurse{}).Count(&count).Error
 	return count, err
 }
 
@@ -209,4 +219,116 @@ func (r *adminRepository) GetTotalUsers() (int64, error) {
 	var count int64
 	err := config.DB.Model(&model.User{}).Count(&count).Error
 	return count, err
+}
+
+// GetTodayAppointmentsByDoctor returns all appointments for today grouped by doctor with patient and doctor details
+func (r *adminRepository) GetTodayAppointmentsByDoctor() ([]map[string]interface{}, error) {
+	today := time.Now().Format("2006-01-02")
+
+	query := `
+		SELECT
+			a.id::text,
+			a.appointment_date,
+			a.appointment_time,
+			a.status,
+			a.reason,
+			a.notes,
+			a.created_at,
+			d.id::text as doctor_id,
+			CONCAT(du.first_name, ' ', du.last_name) AS doctor_name,
+			d.specialization,
+			d.department,
+			p.id::text as patient_id,
+			CONCAT(pu.first_name, ' ', pu.last_name) AS patient_name,
+			pu.phone as patient_phone
+		FROM appointments a
+		JOIN doctors d ON a.doctor_id = d.id
+		JOIN users du ON d.user_id = du.id
+		JOIN patients p ON a.patient_id = p.id
+		JOIN users pu ON p.user_id = pu.id
+		WHERE a.appointment_date = ?
+		ORDER BY d.id, a.appointment_time
+	`
+
+	rows, err := config.DB.Raw(query, today).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var appointmentID, appointmentDate, appointmentTime, status, reason, notes string
+		var createdAt int64
+		var doctorID, doctorName, specialization, department string
+		var patientID, patientName, patientPhone string
+
+		if err := rows.Scan(&appointmentID, &appointmentDate, &appointmentTime, &status, &reason, &notes, &createdAt,
+			&doctorID, &doctorName, &specialization, &department, &patientID, &patientName, &patientPhone); err != nil {
+			return nil, err
+		}
+
+		result = append(result, map[string]interface{}{
+			"id":                    appointmentID,
+			"appointment_date":      appointmentDate,
+			"appointment_time":      appointmentTime,
+			"status":                status,
+			"reason":                reason,
+			"notes":                 notes,
+			"created_at":            createdAt,
+			"doctor_id":             doctorID,
+			"doctor_name":           doctorName,
+			"doctor_specialization": specialization,
+			"doctor_department":     department,
+			"patient_id":            patientID,
+			"patient_name":          patientName,
+			"patient_phone":         patientPhone,
+		})
+	}
+
+	return result, nil
+}
+
+// GetNurseRoleBreakdown returns count of nurses by each role
+func (r *adminRepository) GetNurseRoleBreakdown() ([]map[string]interface{}, error) {
+	query := `
+		SELECT 
+			n.role,
+			COUNT(n.id) as count,
+			ROUND(COUNT(n.id) * 100.0 / NULLIF(SUM(COUNT(n.id)) OVER (), 0), 2) as percentage
+		FROM nurses n
+		WHERE n.deleted_at IS NULL
+		GROUP BY n.role
+		ORDER BY count DESC
+	`
+
+	rows, err := config.DB.Raw(query).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var role *string // Use pointer to handle NULL values
+		var count int
+		var percentage float64
+
+		if err := rows.Scan(&role, &count, &percentage); err != nil {
+			return nil, err
+		}
+
+		roleStr := "Unassigned"
+		if role != nil && *role != "" {
+			roleStr = *role
+		}
+
+		result = append(result, map[string]interface{}{
+			"role":       roleStr,
+			"count":      count,
+			"percentage": percentage,
+		})
+	}
+
+	return result, nil
 }

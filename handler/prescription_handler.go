@@ -169,3 +169,26 @@ func (h *PrescriptionHandler) GetPatientPrescriptions(c *gin.Context) {
 		"limit":         limit,
 	})
 }
+
+// GetPrescriptionMedicines retrieves all medicines in a prescription
+// GET /api/v1/prescriptions/:id/medicines
+func (h *PrescriptionHandler) GetPrescriptionMedicines(c *gin.Context) {
+	prescriptionIDStr := c.Param("id")
+	prescriptionID, err := uuid.Parse(prescriptionIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid prescription id")
+		return
+	}
+
+	medicines, err := h.prescriptionService.GetPrescriptionMedicines(prescriptionID)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"prescription_id": prescriptionID,
+		"medicines":       medicines,
+		"total":           len(medicines),
+	})
+}

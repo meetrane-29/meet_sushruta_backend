@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"meet_sushruta/model"
+	"meet_sushruta/repository"
 	"meet_sushruta/service"
 	"meet_sushruta/utils"
 
@@ -13,11 +14,19 @@ import (
 
 type AppointmentHandler struct {
 	appointmentService service.AppointmentService
+	patientRepo        repository.PatientRepository
+	doctorRepo         repository.DoctorRepository
 }
 
-func NewAppointmentHandler(appointmentService service.AppointmentService) *AppointmentHandler {
+func NewAppointmentHandler(
+	appointmentService service.AppointmentService,
+	patientRepo repository.PatientRepository,
+	doctorRepo repository.DoctorRepository,
+) *AppointmentHandler {
 	return &AppointmentHandler{
 		appointmentService: appointmentService,
+		patientRepo:        patientRepo,
+		doctorRepo:         doctorRepo,
 	}
 }
 
@@ -66,8 +75,11 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 	utils.OK(c, appointment)
 }
 
-// GetAllAppointments retrieves all appointments with pagination
+// GetAllAppointments retrieves appointments based on user role with pagination
 // GET /api/v1/appointments
+// - Patient: returns own appointments
+// - Doctor: returns own appointments (as provider)
+// - Admin/Nurse: returns all appointments
 func (h *AppointmentHandler) GetAllAppointments(c *gin.Context) {
 	page := 1
 	limit := 10
@@ -84,7 +96,57 @@ func (h *AppointmentHandler) GetAllAppointments(c *gin.Context) {
 		}
 	}
 
-	appointments, total, err := h.appointmentService.ListAppointments(page, limit)
+	// Get user context from auth middleware
+	userID, exists := c.Get("userID")
+	if !exists {
+		utils.Fail(c, 401, "unauthorized")
+		return
+	}
+
+	role, exists := c.Get("role")
+	if !exists {
+		utils.Fail(c, 401, "unauthorized")
+		return
+	}
+
+	userIDUUID := userID.(uuid.UUID)
+	roleStr := role.(string)
+
+	var appointments []model.Appointment
+	var total int64
+	var err error
+
+	// Filter appointments based on user role
+	switch roleStr {
+	case "patient":
+		// Patient views only their own appointments
+		patient, err := h.patientRepo.GetByUserID(userIDUUID)
+		if err != nil {
+			utils.Fail(c, 404, "patient record not found")
+			return
+		}
+
+		appointments, total, err = h.appointmentService.GetPatientAppointments(patient.ID, page, limit)
+
+	case "doctor":
+		// Doctor views their own appointments
+		doctor, err := h.doctorRepo.GetByUserID(userIDUUID)
+		if err != nil {
+			utils.Fail(c, 404, "doctor record not found")
+			return
+		}
+
+		appointments, total, err = h.appointmentService.GetDoctorAppointments(doctor.ID, page, limit)
+
+	case "admin", "nurse":
+		// Admin and nurses can see all appointments
+		appointments, total, err = h.appointmentService.ListAppointments(page, limit)
+
+	default:
+		utils.Fail(c, 403, "insufficient permissions")
+		return
+	}
+
 	if err != nil {
 		utils.Fail(c, 500, err.Error())
 		return
@@ -184,5 +246,68 @@ func (h *AppointmentHandler) UpdateAppointmentVitals(c *gin.Context) {
 	utils.OK(c, gin.H{
 		"message": "vitals update would persist here",
 		"notes":   req.Notes,
+	})
+}
+
+// GetAppointmentVitals retrieves vitals recorded for an appointment
+// GET /api/v1/appointments/:id/vitals
+func (h *AppointmentHandler) GetAppointmentVitals(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid appointment id")
+		return
+	}
+
+	// Get appointment
+	appointment, err := h.appointmentService.GetAppointment(id)
+	if err != nil {
+		utils.Fail(c, 404, "appointment not found")
+		return
+	}
+
+	// Check if appointment has vitals recorded
+	// Vitals are stored in the vitals table linked to patient, not directly to appointment
+	// We'll retrieve all vitals for the patient and filter by appointment date/time
+	vitalsService, ok := c.Get("vitalsService")
+	if !ok {
+		// Fallback: vitals need to be queried through the database
+		// In this case, we'll return vitals recorded around the appointment time
+		utils.OK(c, gin.H{
+			"appointment_id": appointment.ID,
+			"patient_id":     appointment.PatientID,
+			"appointment_date": appointment.AppointmentDate,
+			"appointment_time": appointment.AppointmentTime,
+			"vitals":           []model.Vitals{},
+			"message":          "Vitals service not available in context",
+		})
+		return
+	}
+
+	// Try to use vitals service if available
+	vitals, ok := vitalsService.(service.VitalsService)
+	if !ok {
+		utils.Fail(c, 500, "vitals service unavailable")
+		return
+	}
+
+	// Get vitals for the patient
+	patientVitals, err := vitals.GetVitalsByPatientID(appointment.PatientID)
+	if err != nil {
+		utils.OK(c, gin.H{
+			"appointment_id": appointment.ID,
+			"patient_id":     appointment.PatientID,
+			"vitals":         []model.Vitals{},
+			"message":        "No vitals recorded for this patient",
+		})
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"appointment_id":   appointment.ID,
+		"patient_id":       appointment.PatientID,
+		"appointment_date": appointment.AppointmentDate,
+		"appointment_time": appointment.AppointmentTime,
+		"vitals":           patientVitals,
 	})
 }

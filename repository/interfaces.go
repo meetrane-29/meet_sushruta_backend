@@ -71,3 +71,53 @@ type MedicineRepository interface {
 	CreateDispenseHistory(history *model.DispenseHistory) error
 	GetDispenseHistoryByPrescriptionID(prescriptionID uuid.UUID) ([]model.DispenseHistory, error)
 }
+
+// BedRepository defines methods for bed data access
+type BedRepository interface {
+	Create(bed *model.Bed) error
+	GetByID(id uuid.UUID) (*model.Bed, error)
+	GetAll(page, limit int) ([]model.Bed, int64, error)
+	Update(bed *model.Bed) error
+	SoftDelete(id uuid.UUID) error
+	GetByWard(ward string) ([]model.Bed, error)
+	GetByStatus(status string) ([]model.Bed, error)
+	GetByBedType(bedType string) ([]model.Bed, error)
+	GetWardStats() (map[string]interface{}, error)
+	GetBedStats() (map[string]interface{}, error)
+}
+
+// MedicalEquipmentRepository defines methods for medical equipment data access
+type MedicalEquipmentRepository interface {
+	Create(equipment *model.MedicalEquipment) error
+	GetByID(id uuid.UUID) (*model.MedicalEquipment, error)
+	GetAll(page, limit int) ([]model.MedicalEquipment, int64, error)
+	Update(equipment *model.MedicalEquipment) error
+	SoftDelete(id uuid.UUID) error
+	GetByStatus(status string) ([]model.MedicalEquipment, error)
+	GetCriticalEquipment() ([]model.MedicalEquipment, error)
+	GetEquipmentStats() (map[string]interface{}, error)
+}
+
+// OperationTheatreRepository defines methods for operation theatre data access
+type OperationTheatreRepository interface {
+	Create(theatre *model.OperationTheatre) error
+	GetByID(id uuid.UUID) (*model.OperationTheatre, error)
+	GetAll(page, limit int) ([]model.OperationTheatre, int64, error)
+	Update(theatre *model.OperationTheatre) error
+	SoftDelete(id uuid.UUID) error
+	GetByStatus(status string) ([]model.OperationTheatre, error)
+}
+
+// OperationScheduleRepository defines methods for operation schedule data access
+type OperationScheduleRepository interface {
+	Create(operation *model.OperationSchedule) error
+	GetByID(id uuid.UUID) (*model.OperationSchedule, error)
+	GetAll(page, limit int) ([]model.OperationSchedule, int64, error)
+	Update(operation *model.OperationSchedule) error
+	SoftDelete(id uuid.UUID) error
+	GetByStatus(status string) ([]model.OperationSchedule, error)
+	GetByDate(date string) ([]model.OperationSchedule, error)
+	GetByTheatreID(theatreID uuid.UUID) ([]model.OperationSchedule, error)
+	GetUpcomingOperations(daysAhead int) ([]model.OperationSchedule, error)
+	GetOperationStats() (map[string]interface{}, error)
+}

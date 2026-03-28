@@ -25,13 +25,43 @@ func ComprehensiveSeed(db *gorm.DB) error {
 		billCount         int64
 	)
 
-	// Seed users (14 total: 1 admin, 3 doctors, 2 nurses, 1 pharmacist, 1 lab tech, 6 patients)
+	// Seed users (21 total: 1 admin, 10 doctors, 5 nurses, 1 pharmacist, 1 lab tech, 6 patients)
 	if err := SeedUsers(db); err != nil {
 		return fmt.Errorf("failed to seed users: %w", err)
 	}
 	db.Model(&model.User{}).Count(&userCount)
 
-	// Seed doctors (3 with specializations linked to doctor users)
+	// Seed specializations
+	if err := SeedSpecializations(db); err != nil {
+		return fmt.Errorf("failed to seed specializations: %w", err)
+	}
+
+	// Seed hospitals
+	if err := SeedHospitals(db); err != nil {
+		return fmt.Errorf("failed to seed hospitals: %w", err)
+	}
+
+	// Seed beds (ward-wise allocation)
+	if err := SeedBeds(db); err != nil {
+		return fmt.Errorf("failed to seed beds: %w", err)
+	}
+
+	// Seed medical equipment
+	if err := SeedMedicalEquipment(db); err != nil {
+		return fmt.Errorf("failed to seed medical equipment: %w", err)
+	}
+
+	// Seed operation theatres
+	if err := SeedOperationTheatres(db); err != nil {
+		return fmt.Errorf("failed to seed operation theatres: %w", err)
+	}
+
+	// Seed operation schedules
+	if err := SeedOperationSchedules(db); err != nil {
+		return fmt.Errorf("failed to seed operation schedules: %w", err)
+	}
+
+	// Seed doctors (10 with specializations linked to doctor users)
 	if err := SeedDoctors(db); err != nil {
 		return fmt.Errorf("failed to seed doctors: %w", err)
 	}
@@ -106,13 +136,23 @@ func SeedUsers(db *gorm.DB) error {
 	}{
 		// Admin (1)
 		{"admin@test.com", "9900000001", "Admin", "User", "admin", "password123"},
-		// Doctors (3)
+		// Doctors (10)
 		{"doctor@test.com", "9900000002", "Priya", "Sharma", "doctor", "password123"},
 		{"doctor2@test.com", "9900000003", "Arjun", "Mehta", "doctor", "password123"},
 		{"doctor3@test.com", "9900000004", "Sunita", "Patel", "doctor", "password123"},
-		// Nurses (2)
+		{"doctor4@test.com", "9900000018", "Rajesh", "Verma", "doctor", "password123"},
+		{"doctor5@test.com", "9900000019", "Aisha", "Khan", "doctor", "password123"},
+		{"doctor6@test.com", "9900000020", "Vikram", "Sharma", "doctor", "password123"},
+		{"doctor7@test.com", "9900000021", "Anjali", "Menon", "doctor", "password123"},
+		{"doctor8@test.com", "9900000022", "Nikhil", "Gupta", "doctor", "password123"},
+		{"doctor9@test.com", "9900000023", "Neha", "Singh", "doctor", "password123"},
+		{"doctor10@test.com", "9900000024", "Amit", "Reddy", "doctor", "password123"},
+		// Nurses (5) with different roles
 		{"nurse@test.com", "9900000005", "Anjali", "Singh", "nurse", "password123"},
 		{"nurse2@test.com", "9900000006", "Deepa", "Kumar", "nurse", "password123"},
+		{"nurse3@test.com", "9900000015", "Priya", "Desai", "nurse", "password123"},
+		{"nurse4@test.com", "9900000016", "Neelima", "Rao", "nurse", "password123"},
+		{"nurse5@test.com", "9900000017", "Sneha", "Iyer", "nurse", "password123"},
 		// Pharmacist (1)
 		{"pharmacy@test.com", "9900000007", "Rajesh", "Desai", "pharmacy", "password123"},
 		// Lab Tech (1)
@@ -173,6 +213,13 @@ func SeedDoctors(db *gorm.DB) error {
 		{"doctor@test.com", "Cardiology", "MC-1001", 500},
 		{"doctor2@test.com", "Orthopedics", "MC-1002", 400},
 		{"doctor3@test.com", "Neurology", "MC-1003", 600},
+		{"doctor4@test.com", "Pediatrics", "MC-1004", 350},
+		{"doctor5@test.com", "Dermatology", "MC-1005", 450},
+		{"doctor6@test.com", "Ophthalmology", "MC-1006", 550},
+		{"doctor7@test.com", "ENT", "MC-1007", 400},
+		{"doctor8@test.com", "General Medicine", "MC-1008", 300},
+		{"doctor9@test.com", "Psychiatry", "MC-1009", 500},
+		{"doctor10@test.com", "Gynecology", "MC-1010", 550},
 	}
 
 	for _, d := range doctors {
@@ -349,22 +396,50 @@ func SeedAppointments(db *gorm.DB) error {
 		time       string
 		reason     string
 	}{
-		// TODAY (3 appointments)
+		// TODAY (18 appointments - showcasing all 10 doctors)
 		{0, 0, 0, "pending", "09:00", "General checkup"},
 		{1, 1, 0, "confirmed", "10:30", "Follow-up consultation"},
 		{2, 2, 0, "in_progress", "14:00", "Neurological assessment"},
-		// YESTERDAY (3 appointments)
-		{3, 0, 1, "completed", "11:00", "Cardiac evaluation"},
-		{4, 1, 1, "completed", "15:00", "Orthopedic consultation"},
-		{5, 2, 1, "completed", "09:30", "Allergy screening"},
-		// 3 DAYS AGO (3 appointments)
-		{0, 1, 3, "completed", "10:00", "Annual health checkup"},
-		{1, 2, 3, "completed", "13:00", "Neurological follow-up"},
-		{2, 0, 3, "completed", "16:00", "Gastrointestinal review"},
-		// 7 DAYS AGO (3 appointments)
-		{3, 2, 7, "completed", "11:30", "Hypertension management"},
-		{4, 0, 7, "completed", "14:30", "Orthopedic review"},
-		{5, 1, 7, "completed", "10:15", "Diabetes management"},
+		{3, 3, 0, "pending", "11:00", "Pediatric consultation"},
+		{4, 4, 0, "confirmed", "12:30", "Skin treatment"},
+		{5, 5, 0, "pending", "15:30", "Eye examination"},
+		{0, 6, 0, "confirmed", "13:00", "Ear, nose and throat check"},
+		{1, 7, 0, "in_progress", "16:00", "General medical exam"},
+		{2, 8, 0, "confirmed", "10:00", "Mental health consultation"},
+		{3, 9, 0, "pending", "14:30", "Women's health checkup"},
+		{4, 0, 0, "completed", "08:00", "Cardiac evaluation"},
+		{5, 1, 0, "completed", "11:00", "Orthopedic assessment"},
+		{0, 2, 0, "completed", "09:30", "Neurological review"},
+		{1, 3, 0, "confirmed", "15:00", "Child vaccination"},
+		{2, 4, 0, "pending", "13:00", "Skin allergy test"},
+		{3, 5, 0, "confirmed", "10:00", "Cataract consultation"},
+		{4, 6, 0, "pending", "11:30", "Hearing test"},
+		{5, 7, 0, "confirmed", "12:00", "Blood pressure checkup"},
+		// YESTERDAY (10 appointments)
+		{0, 8, 1, "completed", "09:00", "Psychiatric evaluation"},
+		{1, 9, 1, "completed", "10:30", "Pregnancy checkup"},
+		{2, 0, 1, "completed", "14:00", "Heart disease consultation"},
+		{3, 1, 1, "completed", "11:00", "Bone injury treatment"},
+		{4, 2, 1, "completed", "15:30", "Brain disorder assessment"},
+		{5, 3, 1, "completed", "09:30", "Child health checkup"},
+		{0, 4, 1, "completed", "12:00", "Dermatology treatment"},
+		{1, 5, 1, "completed", "13:00", "Vision correction"},
+		{2, 6, 1, "completed", "10:15", "ENT surgery follow-up"},
+		{3, 7, 1, "completed", "16:00", "Routine checkup"},
+		// 3 DAYS AGO (6 appointments)
+		{4, 8, 3, "completed", "11:00", "Psychology session"},
+		{5, 9, 3, "completed", "14:00", "Gynecology consultation"},
+		{0, 0, 3, "completed", "10:00", "Cardiology follow-up"},
+		{1, 1, 3, "completed", "13:00", "Physical therapy"},
+		{2, 2, 3, "completed", "16:00", "Neurology session"},
+		{3, 3, 3, "completed", "09:00", "Pediatric follow-up"},
+		// 7 DAYS AGO (6 appointments)
+		{4, 4, 7, "completed", "11:30", "Dermatology review"},
+		{5, 5, 7, "completed", "14:30", "Ophthalmology checkup"},
+		{0, 6, 7, "completed", "10:15", "ENT consultation"},
+		{1, 7, 7, "completed", "13:15", "General medicine review"},
+		{2, 8, 7, "completed", "15:00", "Psychiatric follow-up"},
+		{3, 9, 7, "completed", "10:45", "Women's health"},
 	}
 
 	for _, a := range appointments {
@@ -479,16 +554,20 @@ func SeedVitals(db *gorm.DB) error {
 	return nil
 }
 
-// SeedNurses creates nurse records linked to nurse users
+// SeedNurses creates nurse records linked to nurse users with various roles
 func SeedNurses(db *gorm.DB) error {
 	nurses := []struct {
 		email         string
 		licenseNumber string
+		role          string
 		department    string
 		shift         string
 	}{
-		{"nurse@test.com", "NL-5001", "General Ward", "morning"},
-		{"nurse2@test.com", "NL-5002", "ICU", "evening"},
+		{"nurse@test.com", "NL-5001", "Staff Nurse", "General Ward", "morning"},
+		{"nurse2@test.com", "NL-5002", "ICU Nurse", "ICU", "evening"},
+		{"nurse3@test.com", "NL-5003", "Charge Nurse", "General Ward", "night"},
+		{"nurse4@test.com", "NL-5004", "Operation Theatre Nurse", "OT", "morning"},
+		{"nurse5@test.com", "NL-5005", "Pediatric Nurse", "Pediatrics", "evening"},
 	}
 
 	for _, n := range nurses {
@@ -504,6 +583,7 @@ func SeedNurses(db *gorm.DB) error {
 
 		// Check if nurse already exists
 		if err := db.Where("user_id = ?", user.ID).First(&existingNurse).Error; err == nil {
+			log.Printf("✓ Nurse already exists: %s %s - %s (%s, %s shift)", user.FirstName, user.LastName, n.role, n.department, n.shift)
 			continue // Nurse already exists
 		}
 
@@ -512,6 +592,7 @@ func SeedNurses(db *gorm.DB) error {
 			ID:            uuid.New(),
 			UserID:        user.ID,
 			LicenseNumber: n.licenseNumber,
+			Role:          n.role,
 			Department:    n.department,
 			Shift:         n.shift,
 		}
@@ -521,8 +602,13 @@ func SeedNurses(db *gorm.DB) error {
 			continue
 		}
 
-		log.Printf("✓ Created nurse: %s %s - %s (%s shift)", user.FirstName, user.LastName, n.department, n.shift)
+		log.Printf("✓ Created nurse: %s %s - %s (%s, %s shift)", user.FirstName, user.LastName, n.role, n.department, n.shift)
 	}
+
+	// Print nurses count
+	var nurseCount int64
+	db.Model(&model.Nurse{}).Count(&nurseCount)
+	log.Printf("📊 Total nurses in database: %d\n", nurseCount)
 
 	return nil
 }
@@ -984,6 +1070,478 @@ func SeedBills(db *gorm.DB) error {
 	var billCount int64
 	db.Model(&model.Bill{}).Count(&billCount)
 	log.Printf("📊 Total bills in database: %d\n", billCount)
+
+	return nil
+}
+
+// SeedSpecializations creates common medical specializations
+func SeedSpecializations(db *gorm.DB) error {
+	specializations := []struct {
+		name     string
+		category string
+	}{
+		{"Cardiology", "Medicine"},
+		{"Neurology", "Medicine"},
+		{"Orthopedics", "Surgery"},
+		{"General Surgery", "Surgery"},
+		{"Pediatrics", "Medicine"},
+		{"Dermatology", "Medicine"},
+		{"ENT", "Medicine"},
+		{"Ophthalmology", "Medicine"},
+		{"Psychiatry", "Medicine"},
+		{"Oncology", "Medicine"},
+		{"Gastroenterology", "Medicine"},
+		{"Urology", "Surgery"},
+		{"Nephrology", "Medicine"},
+		{"Rheumatology", "Medicine"},
+		{"Endocrinology", "Medicine"},
+		{"Pulmonology", "Medicine"},
+		{"Emergency Medicine", "Medicine"},
+		{"Anesthesiology", "Medicine"},
+		{"Radiology", "Diagnostics"},
+		{"Pathology", "Diagnostics"},
+	}
+
+	for _, s := range specializations {
+		spec := model.Specialization{
+			Name:     s.name,
+			Category: s.category,
+			IsActive: true,
+		}
+
+		if err := db.FirstOrCreate(&spec, model.Specialization{Name: s.name}).Error; err != nil {
+			log.Printf("Failed to seed specialization %s: %v", s.name, err)
+			continue
+		}
+		log.Printf("✓ Specialization ensured: %s", s.name)
+	}
+
+	var specCount int64
+	db.Model(&model.Specialization{}).Count(&specCount)
+	log.Printf("📊 Total specializations in database: %d\n", specCount)
+
+	return nil
+}
+
+// SeedHospitals creates sample hospitals
+func SeedHospitals(db *gorm.DB) error {
+	hospitals := []struct {
+		name          string
+		address       string
+		city          string
+		state         string
+		phone         string
+		email         string
+		totalBeds     int
+		availableBeds int
+	}{
+		{
+			"City Central Hospital",
+			"123 Medical Lane, Healthcare District",
+			"New Delhi",
+			"Delhi",
+			"011-40123456",
+			"info@cityhospital.com",
+			500,
+			150,
+		},
+		{
+			"Apollo Medical Center",
+			"456 Health Avenue, Tech Park",
+			"Bangalore",
+			"Karnataka",
+			"080-40000123",
+			"contact@apollo.com",
+			400,
+			120,
+		},
+		{
+			"Fortis Healthcare",
+			"789 Wellness Blvd, Medical Zone",
+			"Mumbai",
+			"Maharashtra",
+			"022-67890123",
+			"support@fortis.com",
+			350,
+			100,
+		},
+		{
+			"Max Super Specialty Hospital",
+			"321 Care Street, Health Campus",
+			"Gurgaon",
+			"Haryana",
+			"124-40000456",
+			"info@maxhospital.com",
+			450,
+			130,
+		},
+		{
+			"Fortis No. 1 Hospital",
+			"654 Cure Drive, Hospital Zone",
+			"Hyderabad",
+			"Telangana",
+			"040-67890789",
+			"contact@fortis-hyd.com",
+			380,
+			110,
+		},
+	}
+
+	for _, h := range hospitals {
+		hospital := model.Hospital{
+			Name:          h.name,
+			Address:       h.address,
+			City:          h.city,
+			State:         h.state,
+			Phone:         h.phone,
+			Email:         h.email,
+			TotalBeds:     h.totalBeds,
+			AvailableBeds: h.availableBeds,
+			IsActive:      true,
+			IsVerified:    true,
+		}
+
+		if err := db.FirstOrCreate(&hospital, model.Hospital{Name: h.name}).Error; err != nil {
+			log.Printf("Failed to seed hospital %s: %v", h.name, err)
+			continue
+		}
+		log.Printf("✓ Hospital ensured: %s (%s)", h.name, h.city)
+	}
+
+	var hospitalCount int64
+	db.Model(&model.Hospital{}).Count(&hospitalCount)
+	log.Printf("📊 Total hospitals in database: %d\n", hospitalCount)
+
+	return nil
+}
+
+// SeedBeds creates ward-wise bed allocation
+func SeedBeds(db *gorm.DB) error {
+	bedData := []struct {
+		bedNumber string
+		ward      string
+		room      string
+		floor     int
+		bedType   string
+		features  string
+		dailyRate float64
+	}{
+		// ICU (10 beds)
+		{"ICU-001", "ICU", "ICU-101", 1, "ICU", "Cardiac monitor, Ventilator, Advanced lighting", 5000},
+		{"ICU-002", "ICU", "ICU-101", 1, "ICU", "Cardiac monitor, Ventilator", 5000},
+		{"ICU-003", "ICU", "ICU-102", 1, "ICU", "Ventilator, Laminar flow", 5000},
+		{"ICU-004", "ICU", "ICU-102", 1, "ICU", "Cardiac monitor, Oxygen concentrator", 5000},
+		{"ICU-005", "ICU", "ICU-103", 1, "ICU", "Ventilator, Infusion pump", 5000},
+		{"ICU-006", "ICU", "ICU-103", 1, "ICU", "Monitors available", 5000},
+		{"ICU-007", "ICU", "ICU-104", 2, "ICU", "Full ICU setup", 5000},
+		{"ICU-008", "ICU", "ICU-104", 2, "ICU", "Ventilator, Monitor", 5000},
+		{"ICU-009", "ICU", "ICU-105", 2, "ICU", "Cardiac monitoring", 5000},
+		{"ICU-010", "ICU", "ICU-105", 2, "ICU", "Standard ICU", 5000},
+
+		// General Ward (15 beds)
+		{"GW-001", "General", "Ward-201", 2, "General", "Basic amenities", 1500},
+		{"GW-002", "General", "Ward-201", 2, "General", "Basic amenities", 1500},
+		{"GW-003", "General", "Ward-202", 2, "General", "TV, AC", 1500},
+		{"GW-004", "General", "Ward-202", 2, "General", "Basic amenities", 1500},
+		{"GW-005", "General", "Ward-203", 3, "General", "Basic amenities", 1500},
+		{"GW-006", "General", "Ward-203", 3, "General", "TV, AC", 1500},
+		{"GW-007", "General", "Ward-204", 3, "General", "Basic amenities", 1500},
+		{"GW-008", "General", "Ward-204", 3, "General", "Basic amenities", 1500},
+		{"GW-009", "General", "Ward-205", 3, "General", "TV, AC", 1500},
+		{"GW-010", "General", "Ward-205", 3, "General", "Basic amenities", 1500},
+		{"GW-011", "General", "Ward-206", 4, "General", "Basic amenities", 1500},
+		{"GW-012", "General", "Ward-206", 4, "General", "TV", 1500},
+		{"GW-013", "General", "Ward-207", 4, "General", "Basic amenities", 1500},
+		{"GW-014", "General", "Ward-207", 4, "General", "AC", 1500},
+		{"GW-015", "General", "Ward-208", 4, "General", "Basic amenities", 1500},
+
+		// Private Rooms (8 beds)
+		{"PR-001", "Private", "Room-301", 3, "Private", "Premium: AC, TV, Attached bath, Sofa", 3500},
+		{"PR-002", "Private", "Room-302", 3, "Private", "Premium: AC, TV, Attached bath", 3500},
+		{"PR-003", "Private", "Room-303", 3, "Private", "Premium: AC, TV, Sofa bed", 3500},
+		{"PR-004", "Private", "Room-304", 4, "Private", "De-luxe: AC, TV, Attached bath, Fridge", 3500},
+		{"PR-005", "Private", "Room-305", 4, "Private", "Premium: AC, TV", 3500},
+		{"PR-006", "Private", "Room-306", 4, "Private", "Premium: AC, TV, Sofa", 3500},
+		{"PR-007", "Private", "Room-307", 4, "Private", "Standard: AC", 2500},
+		{"PR-008", "Private", "Room-308", 5, "Private", "Deluxe: Full amenities", 4000},
+
+		// Semi-Private Rooms (6 beds)
+		{"SP-001", "Semi-Private", "Room-401", 4, "Semi-Private", "AC, TV, Shared bathroom", 2500},
+		{"SP-002", "Semi-Private", "Room-401", 4, "Semi-Private", "AC, TV", 2500},
+		{"SP-003", "Semi-Private", "Room-402", 4, "Semi-Private", "AC, Basic amenities", 2500},
+		{"SP-004", "Semi-Private", "Room-402", 4, "Semi-Private", "AC, TV", 2500},
+		{"SP-005", "Semi-Private", "Room-403", 5, "Semi-Private", "AC, TV", 2500},
+		{"SP-006", "Semi-Private", "Room-403", 5, "Semi-Private", "AC, Basic amenities", 2500},
+	}
+
+	for idx, bd := range bedData {
+		var existingBed model.Bed
+		err := db.Where("bed_number = ?", bd.bedNumber).First(&existingBed).Error
+
+		var status string
+		// Make some beds occupied
+		if idx%4 == 0 {
+			status = "occupied"
+		} else if idx%7 == 0 {
+			status = "maintenance"
+		} else {
+			status = "available"
+		}
+
+		bed := model.Bed{
+			BedNumber: bd.bedNumber,
+			Ward:      bd.ward,
+			Room:      bd.room,
+			Floor:     bd.floor,
+			BedType:   bd.bedType,
+			Status:    status,
+			Features:  bd.features,
+			DailyRate: bd.dailyRate,
+		}
+
+		if err != nil {
+			// Bed doesn't exist, create it
+			if err := db.Create(&bed).Error; err != nil {
+				log.Printf("Failed to seed bed %s: %v", bd.bedNumber, err)
+				continue
+			}
+		}
+		log.Printf("✓ Bed ensured: %s (%s - %s) [%s]", bd.bedNumber, bd.ward, bd.bedType, status)
+	}
+
+	var bedCount int64
+	db.Model(&model.Bed{}).Count(&bedCount)
+	log.Printf("📊 Total beds in database: %d\n", bedCount)
+
+	return nil
+}
+
+// SeedMedicalEquipment creates medical equipment inventory
+func SeedMedicalEquipment(db *gorm.DB) error {
+	// Drop the old unique constraint on serial_number if it exists
+	if db.Migrator().HasIndex("medical_equipments", "idx_medical_equipments_serial_number") {
+		db.Migrator().DropIndex("medical_equipments", "idx_medical_equipments_serial_number")
+		log.Println("Dropped old unique constraint on serial_number")
+	}
+
+	equipment := []struct {
+		equipmentName     string
+		equipmentType     string
+		model             string
+		manufacturer      string
+		location          string
+		status            string
+		criticalEquipment bool
+		dailyRentalRate   float64
+	}{
+		// Critical ICU Equipment
+		{"Ventilator-ICU-01", "Ventilator", "Siemens SERVO-i", "Siemens", "ICU Ward-101", "working", true, 2000},
+		{"Ventilator-ICU-02", "Ventilator", "Hamilton-G5", "Hamilton", "ICU Ward-102", "working", true, 2000},
+		{"Cardiac-Monitor-01", "Cardiac Monitor", "GE Case", "GE Healthcare", "ICU Ward-101", "working", true, 1500},
+		{"Cardiac-Monitor-02", "Cardiac Monitor", "Philips Intellivue", "Philips", "ICU Ward-102", "working", true, 1500},
+		{"Defibrillator-01", "Defibrillator", "Philips Heartstart", "Philips", "ICU Ward-103", "working", true, 1200},
+		{"Infusion-Pump-01", "Infusion Pump", "Baxter Colleague", "Baxter", "ICU Ward-101", "working", true, 800},
+		{"Infusion-Pump-02", "Infusion Pump", "B. Braun Infusomat", "B. Braun", "ICU Ward-102", "working", true, 800},
+		{"Oxygen-Concentrator-01", "Oxygen Concentrator", "Invacare Perfecto2", "Invacare", "ICU Ward-104", "working", false, 500},
+
+		// Operating Theatre Equipment
+		{"Surgical-Light-OT-01", "Surgical Light", "Draeger Symbia", "Draeger", "OT-1", "working", true, 1000},
+		{"Surgical-Light-OT-02", "Surgical Light", "Stryker TPS", "Stryker", "OT-2", "working", true, 1000},
+		{"Electrosurgical-Unit-01", "Electrosurgical Unit", "Conmed Sabre", "Conmed", "OT-1", "working", true, 800},
+		{"Anesthesia-Machine-01", "Anesthesia Machine", "Draeger Primus", "Draeger", "OT-1", "working", true, 1500},
+		{"Anesthesia-Machine-02", "Anesthesia Machine", "GE Avance", "GE", "OT-2", "repair", true, 1500},
+		{"Autoclave-01", "Autoclave Sterilizer", "Tuttnauer", "Tuttnauer", "Sterilization", "working", false, 0},
+
+		// Diagnostic Equipment
+		{"CT-Scanner-01", "CT Scanner", "Siemens SOMATOM", "Siemens", "Radiology", "working", true, 5000},
+		{"Ultrasound-01", "Ultrasound", "GE Vivid E95", "GE Healthcare", "Radiology", "working", false, 800},
+		{"Ultrasound-02", "Ultrasound", "Philips EPIQ", "Philips", "Cardiology", "working", false, 1000},
+		{"X-Ray-Machine-01", "X-Ray Machine", "Siemens Mobilett", "Siemens", "Radiology", "working", false, 2000},
+		{"ECG-Machine-01", "ECG Machine", "Philips PageWriter", "Philips", "Cardiology", "working", false, 500},
+		{"ABG-Analyzer-01", "ABG Analyzer", "Siemens RapidLab", "Siemens", "Lab", "working", false, 0},
+
+		// Laboratory Equipment
+		{"Hematology-Analyzer-01", "Hematology Analyzer", "Sysmex XN1000", "Sysmex", "Lab", "working", false, 0},
+		{"Biochemistry-Analyzer-01", "Biochemistry Analyzer", "Roche Cobas", "Roche", "Lab", "working", false, 0},
+		{"Centrifuge-01", "Centrifuge", "Eppendorf 5810R", "Eppendorf", "Lab", "working", false, 0},
+
+		// Patient Monitoring
+		{"BP-Monitor-01", "BP Monitor", "Omron Digital", "Omron", "General Ward", "working", false, 0},
+		{"Pulse-Oximeter-01", "Pulse Oximeter", "Nellcor N600", "Nellcor", "ICU", "working", false, 200},
+
+		// Equipment in Maintenance/Repair
+		{"Ventilator-Old", "Ventilator", "Helpman 2000", "Helpman", "Maintenance", "under_maintenance", true, 0},
+		{"Cardiac-Monitor-Old", "Cardiac Monitor", "Spacelabs 91370", "Spacelabs", "Maintenance", "repair", true, 0},
+	}
+
+	for _, eq := range equipment {
+		var existingEquip model.MedicalEquipment
+		err := db.Where("equipment_name = ?", eq.equipmentName).First(&existingEquip).Error
+
+		medicalEquip := model.MedicalEquipment{
+			EquipmentName:     eq.equipmentName,
+			EquipmentType:     eq.equipmentType,
+			Model:             eq.model,
+			Manufacturer:      eq.manufacturer,
+			Location:          eq.location,
+			Status:            eq.status,
+			CriticalEquipment: eq.criticalEquipment,
+			DailyRentalRate:   eq.dailyRentalRate,
+		}
+
+		if err != nil && err == gorm.ErrRecordNotFound {
+			if err := db.Create(&medicalEquip).Error; err != nil {
+				log.Printf("Failed to seed equipment %s: %v", eq.equipmentName, err)
+				continue
+			}
+		} else if err != nil {
+			log.Printf("Error querying equipment %s: %v", eq.equipmentName, err)
+			continue
+		}
+		log.Printf("✓ Equipment ensured: %s (%s) [%s]", eq.equipmentName, eq.equipmentType, eq.status)
+	}
+
+	var equipmentCount int64
+	db.Model(&model.MedicalEquipment{}).Count(&equipmentCount)
+	log.Printf("📊 Total medical equipment in database: %d\n", equipmentCount)
+
+	return nil
+}
+
+// SeedOperationTheatres creates operation theatres
+func SeedOperationTheatres(db *gorm.DB) error {
+	theatres := []struct {
+		theatreName   string
+		floor         int
+		capacity      int
+		features      string
+		equipmentList string
+	}{
+		{"OT-1 (General Surgery)", 2, 1, "Laminar flow, Advanced lighting, Video recording, Telemedicine", "Surgical Light, Electrosurgical Unit, Anesthesia Machine"},
+		{"OT-2 (Cardiac Surgery)", 2, 1, "Laminar flow, Advanced lighting, ECMO ready", "Surgical Light, Cardiac bypass machine, Electrosurgical Unit"},
+		{"OT-3 (Orthopedic)", 3, 1, "Laminar flow, C-arm compatible, Bone imaging", "Surgical Light, C-arm machine, Orthopedic instruments"},
+		{"OT-4 (Emergency)", 1, 1, "Rapid setup, Full equipped", "Surgical Light, Electrosurgical Unit, Anesthesia Machine"},
+		{"OT-5 (Laparoscopic)", 3, 1, "Laparoscopic tower, HD monitors", "Surgical Light, Laparoscopic equipment, Video monitors"},
+		{"Minor OT (Procedures)", 2, 2, "Basic setup, Multiple beds", "Procedure lights, Basic instruments"},
+	}
+
+	for _, ot := range theatres {
+		var existingOT model.OperationTheatre
+		err := db.Where("theatre_name = ?", ot.theatreName).First(&existingOT).Error
+
+		theatre := model.OperationTheatre{
+			TheatreName:   ot.theatreName,
+			Floor:         ot.floor,
+			Capacity:      ot.capacity,
+			Status:        "available",
+			Features:      ot.features,
+			EquipmentList: ot.equipmentList,
+		}
+
+		if err != nil {
+			if err := db.Create(&theatre).Error; err != nil {
+				log.Printf("Failed to seed OT %s: %v", ot.theatreName, err)
+				continue
+			}
+		}
+		log.Printf("✓ Operation Theatre ensured: %s (Floor %d)", ot.theatreName, ot.floor)
+	}
+
+	var otCount int64
+	db.Model(&model.OperationTheatre{}).Count(&otCount)
+	log.Printf("📊 Total operation theatres in database: %d\n", otCount)
+
+	return nil
+}
+
+// SeedOperationSchedules creates operation schedules
+func SeedOperationSchedules(db *gorm.DB) error {
+	// Get theatres, patients, and doctors
+	var theatres []model.OperationTheatre
+	if err := db.Find(&theatres).Error; err != nil {
+		return fmt.Errorf("failed to fetch theatres: %w", err)
+	}
+
+	var patients []model.Patient
+	if err := db.Limit(10).Find(&patients).Error; err != nil {
+		return fmt.Errorf("failed to fetch patients: %w", err)
+	}
+
+	var doctors []model.Doctor
+	if err := db.Limit(10).Find(&doctors).Error; err != nil {
+		return fmt.Errorf("failed to fetch doctors: %w", err)
+	}
+
+	if len(theatres) == 0 || len(patients) == 0 || len(doctors) == 0 {
+		log.Printf("Warning: Not enough data to seed operations (theatres: %d, patients: %d, doctors: %d)", len(theatres), len(patients), len(doctors))
+		return nil
+	}
+
+	now := time.Now()
+	operations := []struct {
+		theatreIdx    int
+		patientIdx    int
+		surgeonIdx    int
+		operationType string
+		diagnosis     string
+		daysOffset    int
+		status        string
+		timeStr       string
+	}{
+		{0, 0, 0, "Appendectomy", "Acute appendicitis", 1, "scheduled", "09:00"},
+		{1, 1, 1, "Coronary Artery Bypass", "Triple vessel CAD", 1, "scheduled", "10:30"},
+		{2, 2, 2, "Knee Replacement", "Severe osteoarthritis knee", 2, "scheduled", "14:00"},
+		{3, 3, 3, "Emergency Laparotomy", "Acute abdomen", 0, "in_progress", "11:00"},
+		{4, 4, 4, "Gallbladder Removal (Lap)", "Cholelithiasis", -1, "completed", "09:30"},
+		{0, 5, 0, "Hernia Repair", "Inguinal hernia", -2, "completed", "15:00"},
+		{1, 6, 1, "Cardiac Valve Replacement", "Aortic stenosis", 3, "scheduled", "08:00"},
+		{2, 7, 2, "Hip Arthroplasty", "Hip fracture repair", 2, "scheduled", "13:00"},
+	}
+
+	for idx, op := range operations {
+		theatreIdx := op.theatreIdx % len(theatres)
+		patientIdx := op.patientIdx % len(patients)
+		surgeonIdx := op.surgeonIdx % len(doctors)
+
+		theatre := theatres[theatreIdx]
+		patient := patients[patientIdx]
+		surgeon := doctors[surgeonIdx]
+
+		operationDate := now.AddDate(0, 0, op.daysOffset).Format("2006-01-02")
+
+		var existingOp model.OperationSchedule
+		err := db.Where("patient_id = ? AND operation_date = ? AND operation_time = ?", patient.ID, operationDate, op.timeStr).First(&existingOp).Error
+
+		operationSchedule := model.OperationSchedule{
+			TheatreID:         theatre.ID,
+			PatientID:         patient.ID,
+			SurgieDoctorID:    surgeon.UserID,
+			OperationDate:     operationDate,
+			OperationTime:     op.timeStr,
+			EstimatedDuration: 120,
+			OperationType:     op.operationType,
+			Status:            model.OperationType(op.status),
+			Diagnosis:         op.diagnosis,
+			PreOperativeNotes: "Patient pre-op assessment done. All investigations normal.",
+		}
+
+		if op.status == "completed" {
+			operationSchedule.ActualDuration = 135
+			operationSchedule.PostOperativeNotes = "Surgery completed successfully. Patient stable. Sent to recovery."
+		}
+
+		if err != nil {
+			if err := db.Create(&operationSchedule).Error; err != nil {
+				log.Printf("Failed to seed operation %d: %v", idx+1, err)
+				continue
+			}
+		}
+		log.Printf("✓ Operation ensured: %s on %s at %s [%s]", op.operationType, operationDate, op.timeStr, op.status)
+	}
+
+	var operationCount int64
+	db.Model(&model.OperationSchedule{}).Count(&operationCount)
+	log.Printf("📊 Total operations in database: %d\n", operationCount)
 
 	return nil
 }

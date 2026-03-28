@@ -22,6 +22,7 @@ func OKWithMeta(c *gin.Context, data interface{}, meta interface{}) {
 func Fail(c *gin.Context, code int, msg string) {
 	c.JSON(code, gin.H{
 		"success": false,
+		"message": msg,
 		"error":   msg,
 		"code":    code,
 	})

@@ -28,6 +28,7 @@ type PrescriptionService interface {
 	ListPrescriptions(page, limit int) ([]model.Prescription, int64, error)
 	UpdatePrescriptionStatus(id uuid.UUID, status string) error
 	GetPatientPrescriptions(patientID uuid.UUID, page, limit int) ([]model.Prescription, int64, error)
+	GetPrescriptionMedicines(prescriptionID uuid.UUID) ([]model.PrescriptionItem, error)
 }
 
 type prescriptionService struct{}
@@ -229,6 +230,25 @@ func (s *prescriptionService) GetPatientPrescriptions(patientID uuid.UUID, page,
 	}
 
 	return prescriptions, total, nil
+}
+
+// GetPrescriptionMedicines retrieves all medicines in a prescription with details
+func (s *prescriptionService) GetPrescriptionMedicines(prescriptionID uuid.UUID) ([]model.PrescriptionItem, error) {
+	if prescriptionID == uuid.Nil {
+		return nil, errors.New("invalid prescription id")
+	}
+
+	db := config.GetDB()
+	var items []model.PrescriptionItem
+
+	// Fetch prescription items with medicine details
+	if err := db.Preload("Medicine").
+		Where("prescription_id = ?", prescriptionID).
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to get prescription medicines: %w", err)
+	}
+
+	return items, nil
 }
 
 // notifyPharmacy sends async notification to pharmacy (placeholder)

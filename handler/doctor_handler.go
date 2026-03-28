@@ -23,20 +23,28 @@ func NewDoctorHandler(doctorService service.DoctorService) *DoctorHandler {
 }
 
 type CreateDoctorRequest struct {
-	UserID           uuid.UUID `json:"user_id" binding:"required"`
-	Specialization   string    `json:"specialization" binding:"required"`
-	LicenseNumber    string    `json:"license_number" binding:"required"`
-	CertificationURL string    `json:"certification_url"`
-	Bio              string    `json:"bio"`
-	Department       string    `json:"department"`
-	ConsultationFee  float64   `json:"consultation_fee"`
+	UserID               uuid.UUID `json:"user_id" binding:"required"`
+	Specialization       string    `json:"specialization" binding:"required"`
+	LicenseNumber        string    `json:"license_number" binding:"required"`
+	CertificationURL     string    `json:"certification_url"`
+	Bio                  string    `json:"bio"`
+	Department           string    `json:"department"`
+	ConsultationFee      float64   `json:"consultation_fee"`
+	JoiningDate          int64     `json:"joining_date"`
+	Salary               float64   `json:"salary"`
+	AttendancePercentage float64   `json:"attendance_percentage"`
+	LeaveBalance         int       `json:"leave_balance"`
 }
 
 type UpdateDoctorRequest struct {
-	Specialization  string  `json:"specialization"`
-	Bio             string  `json:"bio"`
-	Department      string  `json:"department"`
-	ConsultationFee float64 `json:"consultation_fee"`
+	Specialization       string  `json:"specialization"`
+	Bio                  string  `json:"bio"`
+	Department           string  `json:"department"`
+	ConsultationFee      float64 `json:"consultation_fee"`
+	JoiningDate          int64   `json:"joining_date"`
+	Salary               float64 `json:"salary"`
+	AttendancePercentage float64 `json:"attendance_percentage"`
+	LeaveBalance         int     `json:"leave_balance"`
 }
 
 // CreateDoctor creates a new doctor
@@ -49,13 +57,17 @@ func (h *DoctorHandler) CreateDoctor(c *gin.Context) {
 	}
 
 	doctor := &model.Doctor{
-		UserID:           req.UserID,
-		Specialization:   req.Specialization,
-		LicenseNumber:    req.LicenseNumber,
-		CertificationURL: req.CertificationURL,
-		Bio:              req.Bio,
-		Department:       req.Department,
-		ConsultationFee:  req.ConsultationFee,
+		UserID:               req.UserID,
+		Specialization:       req.Specialization,
+		LicenseNumber:        req.LicenseNumber,
+		CertificationURL:     req.CertificationURL,
+		Bio:                  req.Bio,
+		Department:           req.Department,
+		ConsultationFee:      req.ConsultationFee,
+		JoiningDate:          req.JoiningDate,
+		Salary:               req.Salary,
+		AttendancePercentage: req.AttendancePercentage,
+		LeaveBalance:         req.LeaveBalance,
 	}
 
 	err := h.doctorService.CreateDoctor(doctor)
@@ -157,6 +169,18 @@ func (h *DoctorHandler) UpdateDoctor(c *gin.Context) {
 	if req.ConsultationFee > 0 {
 		doctor.ConsultationFee = req.ConsultationFee
 	}
+	if req.JoiningDate > 0 {
+		doctor.JoiningDate = req.JoiningDate
+	}
+	if req.Salary > 0 {
+		doctor.Salary = req.Salary
+	}
+	if req.AttendancePercentage >= 0 {
+		doctor.AttendancePercentage = req.AttendancePercentage
+	}
+	if req.LeaveBalance >= 0 {
+		doctor.LeaveBalance = req.LeaveBalance
+	}
 
 	err = h.doctorService.UpdateDoctor(doctor)
 	if err != nil {
@@ -165,6 +189,27 @@ func (h *DoctorHandler) UpdateDoctor(c *gin.Context) {
 	}
 
 	utils.OK(c, doctor)
+}
+
+// DeleteDoctor deletes a doctor (soft delete)
+// DELETE /api/v1/doctors/:id
+func (h *DoctorHandler) DeleteDoctor(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid doctor id")
+		return
+	}
+
+	err = h.doctorService.SoftDeleteDoctor(id)
+	if err != nil {
+		utils.Fail(c, 400, err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"message": "doctor deleted successfully",
+	})
 }
 
 // GetAvailableSlots retrieves available appointment slots for a doctor
