@@ -12,12 +12,14 @@ import (
 )
 
 type PatientHandler struct {
-	patientService service.PatientService
+	patientService     service.PatientService
+	appointmentService service.AppointmentService
 }
 
-func NewPatientHandler(patientService service.PatientService) *PatientHandler {
+func NewPatientHandler(patientService service.PatientService, appointmentService service.AppointmentService) *PatientHandler {
 	return &PatientHandler{
-		patientService: patientService,
+		patientService:     patientService,
+		appointmentService: appointmentService,
 	}
 }
 
@@ -196,5 +198,54 @@ func (h *PatientHandler) DeletePatient(c *gin.Context) {
 
 	utils.OK(c, gin.H{
 		"message": "patient deleted successfully",
+	})
+}
+
+// GetPatientAppointments retrieves future appointments for a specific patient
+// GET /api/v1/patients/:id/appointments
+// The :id parameter can be either a PATIENT_ID or a USER_ID (for patient's own appointments)
+func (h *PatientHandler) GetPatientAppointments(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid patient id")
+		return
+	}
+
+	page := 1
+	limit := 50
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	// Try to get patient by USER_ID first (for case when frontend sends user ID)
+	patientID := id
+	patient, err := h.patientService.GetPatientByUserID(id)
+	if err == nil && patient != nil {
+		// Successfully found patient by USER_ID, use its ID
+		patientID = patient.ID
+	}
+	// If not found by USER_ID, assume the provided ID is already a PATIENT_ID and proceed
+
+	appointments, total, err := h.appointmentService.GetPatientAppointments(patientID, page, limit)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"appointments": appointments,
+		"total":        total,
+		"page":         page,
+		"limit":        limit,
 	})
 }

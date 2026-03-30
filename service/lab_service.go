@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -33,12 +34,18 @@ type LabService interface {
 	UpdateStatus(id uuid.UUID, status string) error
 	UploadReport(orderID, staffID uuid.UUID, filePath string, fileName string) (string, error)
 	GetPatientLabOrders(patientID uuid.UUID, page, limit int) ([]model.LabRequest, int64, error)
+	GetLabOrdersFiltered(ctx context.Context, filter *LabOrderFilter) ([]*model.LabRequest, int64, error)
+	BulkUpdateStatus(ctx context.Context, orderIDs []uuid.UUID, status string, labID uuid.UUID) (*BulkOperationResult, error)
 }
 
-type labService struct{}
+type labService struct {
+	notificationService *NotificationService
+}
 
-func NewLabService() LabService {
-	return &labService{}
+func NewLabService(notificationService *NotificationService) LabService {
+	return &labService{
+		notificationService: notificationService,
+	}
 }
 
 // CreateOrder creates a new lab order
@@ -230,8 +237,8 @@ func (s *labService) UploadReport(orderID, staffID uuid.UUID, filePath string, f
 	}
 
 	// Async notifications
-	go notifyPatientOfLabResult(labOrder.PatientID, orderID)
-	go notifyDoctorOfLabResult(labOrder.DoctorID, orderID)
+	go s.notifyPatientOfLabResult(labOrder.PatientID, labOrder.DoctorID, orderID, labOrder)
+	go s.notifyDoctorOfLabResult(labOrder.DoctorID, labOrder.PatientID, orderID, labOrder)
 
 	return fileURL, nil
 }
@@ -288,16 +295,71 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// notifyPatientOfLabResult sends async notification to patient
-func notifyPatientOfLabResult(patientID, labOrderID uuid.UUID) {
-	// TODO: Implement patient notification logic
-	// This could be done via email, SMS, or in-app notification
-	fmt.Printf("Notifying patient %s about lab result: %s\n", patientID, labOrderID)
+// notifyPatientOfLabResult sends async notification to patient when lab results are ready
+func (s *labService) notifyPatientOfLabResult(patientID, doctorID, labOrderID uuid.UUID, labOrder *model.LabRequest) {
+	if s.notificationService == nil {
+		fmt.Printf("[Lab] Notification service not available\n")
+		return
+	}
+
+	// Get patient details
+	db := config.GetDB()
+	patient := &model.User{}
+	if err := db.Where("id = ?", patientID).First(patient).Error; err != nil {
+		fmt.Printf("[Lab] Error fetching patient: %v\n", err)
+		return
+	}
+
+	message := fmt.Sprintf("Aapki %s ki report ready hai",
+		labOrder.TestName)
+
+	job := NotificationJob{
+		RecipientID: patientID,
+		Type:        "lab_result",
+		Title:       "Lab Results Ready",
+		Message:     message,
+		Channel:     "in_app", // Can be extended to email/sms
+		RelatedID:   &labOrderID,
+		RelatedType: "LabRequest",
+	}
+	s.notificationService.Send(job)
+	fmt.Printf("[Lab] Patient %s notified about lab result %s\n", patient.Email, labOrderID.String())
 }
 
-// notifyDoctorOfLabResult sends async notification to doctor
-func notifyDoctorOfLabResult(doctorID, labOrderID uuid.UUID) {
-	// TODO: Implement doctor notification logic
-	// This could be done via email, SMS, or in-app notification
-	fmt.Printf("Notifying doctor %s about lab result: %s\n", doctorID, labOrderID)
+// notifyDoctorOfLabResult sends async notification to doctor when lab results are ready
+func (s *labService) notifyDoctorOfLabResult(doctorID, patientID, labOrderID uuid.UUID, labOrder *model.LabRequest) {
+	if s.notificationService == nil {
+		fmt.Printf("[Lab] Notification service not available\n")
+		return
+	}
+
+	// Get doctor details
+	db := config.GetDB()
+	doctor := &model.User{}
+	if err := db.Where("id = ?", doctorID).First(doctor).Error; err != nil {
+		fmt.Printf("[Lab] Error fetching doctor: %v\n", err)
+		return
+	}
+
+	// Get patient name for context
+	patient := &model.User{}
+	if err := db.Where("id = ?", patientID).First(patient).Error; err != nil {
+		fmt.Printf("[Lab] Error fetching patient: %v\n", err)
+		return
+	}
+
+	message := fmt.Sprintf("Patient %s ki %s test complete ho gayi",
+		patient.FirstName+" "+patient.LastName, labOrder.TestName)
+
+	job := NotificationJob{
+		RecipientID: doctorID,
+		Type:        "lab_result",
+		Title:       "Lab Test Completed",
+		Message:     message,
+		Channel:     "in_app", // Can be extended to email/sms
+		RelatedID:   &labOrderID,
+		RelatedType: "LabRequest",
+	}
+	s.notificationService.Send(job)
+	fmt.Printf("[Lab] Doctor %s notified about lab result %s\n", doctor.Email, labOrderID.String())
 }

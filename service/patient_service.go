@@ -12,6 +12,7 @@ import (
 type PatientService interface {
 	RegisterPatient(patient *model.Patient) error
 	GetPatient(id uuid.UUID) (*model.Patient, error)
+	GetPatientByUserID(userID uuid.UUID) (*model.Patient, error)
 	ListPatients(page, limit int, search string) ([]model.Patient, int64, error)
 	UpdatePatient(patient *model.Patient) error
 	SoftDeletePatient(id uuid.UUID) error
@@ -65,6 +66,20 @@ func (s *patientService) GetPatient(id uuid.UUID) (*model.Patient, error) {
 	patient, err := s.patientRepo.GetByID(id)
 	if err != nil {
 		return nil, errors.New("patient not found")
+	}
+
+	return patient, nil
+}
+
+// GetPatientByUserID retrieves a patient by their user ID
+func (s *patientService) GetPatientByUserID(userID uuid.UUID) (*model.Patient, error) {
+	if userID == uuid.Nil {
+		return nil, errors.New("invalid user id")
+	}
+
+	patient, err := s.patientRepo.GetByUserID(userID)
+	if err != nil {
+		return nil, errors.New("patient not found for this user")
 	}
 
 	return patient, nil

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -29,12 +30,17 @@ type PrescriptionService interface {
 	UpdatePrescriptionStatus(id uuid.UUID, status string) error
 	GetPatientPrescriptions(patientID uuid.UUID, page, limit int) ([]model.Prescription, int64, error)
 	GetPrescriptionMedicines(prescriptionID uuid.UUID) ([]model.PrescriptionItem, error)
+	BulkUpdateStatus(ctx context.Context, prescriptionIDs []uuid.UUID, status string, doctorID uuid.UUID) (*BulkOperationResult, error)
 }
 
-type prescriptionService struct{}
+type prescriptionService struct {
+	notificationService *NotificationService
+}
 
-func NewPrescriptionService() PrescriptionService {
-	return &prescriptionService{}
+func NewPrescriptionService(notificationService *NotificationService) PrescriptionService {
+	return &prescriptionService{
+		notificationService: notificationService,
+	}
 }
 
 // CreatePrescription creates a new prescription with items in a transaction
@@ -120,7 +126,7 @@ func (s *prescriptionService) CreatePrescription(appointmentID, doctorID uuid.UU
 	}
 
 	// Async notification to pharmacy
-	go notifyPharmacy(prescription.ID)
+	go s.notifyPharmacy(prescription.ID, prescription.DoctorID, prescription.PatientID)
 
 	return prescription, nil
 }
@@ -161,7 +167,7 @@ func (s *prescriptionService) ListPrescriptions(page, limit int) ([]model.Prescr
 
 	offset := (page - 1) * limit
 
-	if err := db.Preload("Patient").Preload("Doctor").
+	if err := db.Preload("Patient").Preload("Doctor").Preload("PrescriptionItems").Preload("PrescriptionItems.Medicine").
 		Offset(offset).
 		Limit(limit).
 		Find(&prescriptions).
@@ -251,9 +257,61 @@ func (s *prescriptionService) GetPrescriptionMedicines(prescriptionID uuid.UUID)
 	return items, nil
 }
 
-// notifyPharmacy sends async notification to pharmacy (placeholder)
-func notifyPharmacy(prescriptionID uuid.UUID) {
-	// TODO: Implement pharmacy notification logic
-	// This could be done via message queue, email, or in-app notification
-	fmt.Printf("Notifying pharmacy about prescription: %s\n", prescriptionID)
+// notifyPharmacy sends async notification to pharmacy when prescription is created
+func (s *prescriptionService) notifyPharmacy(prescriptionID, doctorID, patientID uuid.UUID) {
+	if s.notificationService == nil {
+		fmt.Printf("[Prescription] Notification service not available\n")
+		return
+	}
+
+	// Get prescription details
+	db := config.GetDB()
+	prescription := &model.Prescription{}
+	if err := db.Where("id = ?", prescriptionID).
+		Preload("PrescriptionItems").
+		Preload("Patient").
+		First(prescription).Error; err != nil {
+		fmt.Printf("[Prescription] Error fetching prescription: %v\n", err)
+		return
+	}
+
+	// Get doctor name
+	doctor := &model.User{}
+	if err := db.Where("id = ?", doctorID).First(doctor).Error; err != nil {
+		fmt.Printf("[Prescription] Error fetching doctor: %v\n", err)
+		return
+	}
+
+	// Get patient name
+	patient := &model.User{}
+	if err := db.Where("id = ?", patientID).First(patient).Error; err != nil {
+		fmt.Printf("[Prescription] Error fetching patient: %v\n", err)
+		return
+	}
+
+	// Get all pharmacist users to notify
+	var pharmacists []model.User
+	if err := db.Where("role = ?", "pharmacist").Find(&pharmacists).Error; err != nil {
+		fmt.Printf("[Prescription] Error fetching pharmacists: %v\n", err)
+		return
+	}
+
+	itemCount := len(prescription.PrescriptionItems)
+	patientName := patient.FirstName + " " + patient.LastName
+	message := fmt.Sprintf("Patient %s ki prescription aayi hai, %d medicines hain", patientName, itemCount)
+
+	// Notify all pharmacists
+	for _, pharmacist := range pharmacists {
+		job := NotificationJob{
+			RecipientID: pharmacist.ID,
+			Type:        "prescription",
+			Title:       "New Prescription Received",
+			Message:     message,
+			Channel:     "in_app", // Can be extended to email/sms
+			RelatedID:   &prescriptionID,
+			RelatedType: "Prescription",
+		}
+		s.notificationService.Send(job)
+		fmt.Printf("[Prescription] Pharmacist %s notified about prescription %s\n", pharmacist.Email, prescriptionID.String())
+	}
 }

@@ -3,6 +3,7 @@ package repository
 import (
 	"meet_sushruta/config"
 	"meet_sushruta/model"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -35,16 +36,16 @@ func (r *appointmentRepository) GetAll(page, limit int) ([]model.Appointment, in
 	var appointments []model.Appointment
 	var total int64
 
-	query := config.DB.Model(&model.Appointment{})
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Preload("Patient").
 		Preload("Patient.User").
 		Preload("Doctor").
 		Preload("Doctor.User").
@@ -71,16 +72,17 @@ func (r *appointmentRepository) GetByPatientID(patientID uuid.UUID, page, limit 
 	var appointments []model.Appointment
 	var total int64
 
-	query := config.DB.Where("patient_id = ?", patientID)
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("patient_id = ?", patientID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("patient_id = ?", patientID).
+		Preload("Patient").
 		Preload("Patient.User").
 		Preload("Doctor").
 		Preload("Doctor.User").
@@ -96,16 +98,17 @@ func (r *appointmentRepository) GetByDoctorID(doctorID uuid.UUID, page, limit in
 	var appointments []model.Appointment
 	var total int64
 
-	query := config.DB.Where("doctor_id = ?", doctorID)
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("doctor_id = ?", doctorID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("doctor_id = ?", doctorID).
+		Preload("Patient").
 		Preload("Patient.User").
 		Preload("Doctor").
 		Preload("Doctor.User").
@@ -129,4 +132,121 @@ func (r *appointmentRepository) GetByDateRange(doctorID uuid.UUID, startDate, en
 		Find(&appointments).Error
 
 	return appointments, err
+}
+
+func (r *appointmentRepository) GetFutureAppointmentsByPatient(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error) {
+	var appointments []model.Appointment
+	var total int64
+
+	today := time.Now().Format("2006-01-02")
+
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("patient_id = ? AND appointment_date >= ?", patientID, today).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("patient_id = ? AND appointment_date >= ?", patientID, today).
+		Preload("Patient").
+		Preload("Patient.User").
+		Preload("Doctor").
+		Preload("Doctor.User").
+		Offset(offset).
+		Limit(limit).
+		Order("appointment_date ASC, appointment_time ASC").
+		Find(&appointments).Error
+
+	return appointments, total, err
+}
+
+// GetAppointmentsForNext7Days returns appointments for next 7 days for a doctor
+func (r *appointmentRepository) GetAppointmentsForNext7Days(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error) {
+	var appointments []model.Appointment
+	var total int64
+
+	today := time.Now().Format("2006-01-02")
+	nextWeek := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, today, nextWeek).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, today, nextWeek).
+		Preload("Patient").
+		Preload("Patient.User").
+		Preload("Doctor").
+		Preload("Doctor.User").
+		Offset(offset).
+		Limit(limit).
+		Order("appointment_date ASC, appointment_time ASC").
+		Find(&appointments).Error
+
+	return appointments, total, err
+}
+
+// GetTodayAppointments returns all appointments for today (for receptionist)
+func (r *appointmentRepository) GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error) {
+	var appointments []model.Appointment
+	var total int64
+
+	today := time.Now().Format("2006-01-02")
+
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("appointment_date = ?", today).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("appointment_date = ?", today).
+		Preload("Patient").
+		Preload("Patient.User").
+		Preload("Doctor").
+		Preload("Doctor.User").
+		Offset(offset).
+		Limit(limit).
+		Order("appointment_time ASC").
+		Find(&appointments).Error
+
+	return appointments, total, err
+}
+
+// GetAllAppointmentsForNext7Days returns all appointments for next 7 days (for nurse)
+func (r *appointmentRepository) GetAllAppointmentsForNext7Days(page, limit int) ([]model.Appointment, int64, error) {
+	var appointments []model.Appointment
+	var total int64
+
+	today := time.Now().Format("2006-01-02")
+	nextWeek := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("appointment_date >= ? AND appointment_date <= ?", today, nextWeek).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("appointment_date >= ? AND appointment_date <= ?", today, nextWeek).
+		Preload("Patient").
+		Preload("Patient.User").
+		Preload("Doctor").
+		Preload("Doctor.User").
+		Offset(offset).
+		Limit(limit).
+		Order("appointment_date ASC, appointment_time ASC").
+		Find(&appointments).Error
+
+	return appointments, total, err
 }

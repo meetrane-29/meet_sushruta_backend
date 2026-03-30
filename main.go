@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"strconv"
 
 	"meet_sushruta/config"
 	"meet_sushruta/handler"
@@ -30,10 +29,10 @@ func main() {
 	}
 	defer config.CloseDatabase()
 
-	// Seed demo data
-	if err := config.SeedDatabase(); err != nil {
-		log.Fatalf("Failed to seed database: %v", err)
-	}
+	// Note: Seed database disabled - use direct SQL file instead
+	// if err := config.SeedDatabase(); err != nil {
+	//	log.Fatalf("Failed to seed database: %v", err)
+	// }
 
 	// Create Gin router
 	router := gin.Default()
@@ -70,16 +69,27 @@ func main() {
 	progressNoteRepo := repository.NewProgressNoteRepository()
 	nurseInstructionRepo := repository.NewNurseInstructionRepository()
 	dischargeSummaryRepo := repository.NewDischargeSummaryRepository()
+	ratingRepo := repository.NewRatingRepository()
+
+	// New OPD-related repositories
+	uhidRepo := repository.NewUHIDRepository(config.DB)
+	insurancePolicyRepo := repository.NewInsurancePolicyRepository(config.DB)
+	waitingListRepo := repository.NewWaitingListRepository(config.DB)
+	opdReceiptRepo := repository.NewOPDReceiptRepository(config.DB)
+
+	// Initialize notification service FIRST - needed by other services
+	notifService := service.NewNotificationService(config.DB)
+	go notifService.StartWorker()
 
 	// Initialize services
 	patientService := service.NewPatientService(patientRepo)
 	doctorService := service.NewDoctorService(doctorRepo, doctorScheduleRepo, appointmentRepo)
 	nurseService := service.NewNurseService(nurseRepo)
 	appointmentService := service.NewAppointmentService(appointmentRepo, patientRepo, doctorRepo)
-	prescriptionService := service.NewPrescriptionService()
+	prescriptionService := service.NewPrescriptionService(notifService)
 	medicineRepo := repository.NewMedicineRepository()
-	pharmacyService := service.NewPharmacyService(medicineRepo)
-	labService := service.NewLabService()
+	pharmacyService := service.NewPharmacyService(medicineRepo, notifService)
+	labService := service.NewLabService(notifService)
 	billingService := service.NewBillingService(billingRepo, patientRepo)
 	adminService := service.NewAdminService(adminRepo, bedRepo, medicalEquipmentRepo, operationTheatreRepo, operationScheduleRepo)
 	vitalsService := service.NewVitalsService(vitalsRepo)
@@ -87,12 +97,20 @@ func main() {
 	specializationService := service.NewSpecializationService(specializationRepo)
 	hospitalService := service.NewHospitalService(hospitalRepo)
 
-	// Initialize notification service and start worker
-	notifService := service.NewNotificationService(config.DB)
-	go notifService.StartWorker()
+	// Performance optimization & analytics services
+	// cacheService := service.NewCacheService(30 * time.Minute) // TODO: Inject into handlers when ready
+	exportService := service.NewExportService()
+	analyticsService := service.NewAnalyticsService()
+
+	// New OPD-related services
+	uhidService := service.NewUHIDService(uhidRepo)
+	insurancePolicyService := service.NewInsurancePolicyService(insurancePolicyRepo)
+	waitingListService := service.NewWaitingListService(waitingListRepo, appointmentRepo)
+	opdReceiptService := service.NewOPDReceiptService(opdReceiptRepo)
+	ratingService := service.NewRatingService(ratingRepo, patientRepo, doctorRepo)
 
 	// Initialize handlers
-	patientHandler := handler.NewPatientHandler(patientService)
+	patientHandler := handler.NewPatientHandler(patientService, appointmentService)
 	nurseHandler := handler.NewNurseHandler(nurseService)
 	doctorHandler := handler.NewDoctorHandler(doctorService, admissionRepo, progressNoteRepo, nurseInstructionRepo, dischargeSummaryRepo)
 	appointmentHandler := handler.NewAppointmentHandler(appointmentService, patientRepo, doctorRepo)
@@ -103,8 +121,20 @@ func main() {
 	adminHandler := handler.NewAdminHandler(adminService)
 	vitalsHandler := handler.NewVitalsHandler(vitalsService)
 	bedHandler := handler.NewBedHandler(bedService)
+	admissionHandler := handler.NewAdmissionHandler(admissionRepo)
 	specializationHandler := handler.NewSpecializationHandler(specializationService)
 	hospitalHandler := handler.NewHospitalHandler(hospitalService)
+
+	// Export and Analytics handlers
+	exportHandler := handler.NewExportHandler(exportService)
+	analyticsHandler := handler.NewAnalyticsHandler(analyticsService)
+
+	// New OPD-related handlers
+	uhidHandler := handler.NewUHIDHandler(uhidService)
+	insuranceHandler := handler.NewInsurancePolicyHandler(insurancePolicyService)
+	waitingListHandler := handler.NewWaitingListHandler(waitingListService)
+	opdReceiptHandler := handler.NewOPDReceiptHandler(opdReceiptService)
+	ratingHandler := handler.NewRatingHandler(ratingService)
 
 	// Add routes
 	v1 := router.Group("/api/v1")
@@ -115,6 +145,7 @@ func main() {
 			auth.POST("/refresh", authHandler.Refresh)
 			auth.POST("/logout", authHandler.Logout)
 			auth.POST("/register", authHandler.Register)
+			auth.POST("/admin-register", middleware.RequireRole("admin"), authHandler.AdminRegisterUser)
 		}
 
 		// Public routes (no authentication required)
@@ -166,9 +197,10 @@ func main() {
 			// Patient routes
 			patients := protected.Group("/patients")
 			{
-				patients.GET("", middleware.RequireRole("admin", "doctor", "nurse"), patientHandler.GetAllPatients)
+				patients.GET("", patientHandler.GetAllPatients)
 				patients.POST("", middleware.RequireRole("admin", "nurse"), patientHandler.CreatePatient)
-				patients.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), patientHandler.GetPatient)
+				patients.GET("/:id", patientHandler.GetPatient)
+				patients.GET("/:id/appointments", patientHandler.GetPatientAppointments)
 				patients.PATCH("/:id", middleware.RequireRole("admin"), patientHandler.UpdatePatient)
 				patients.DELETE("/:id", middleware.RequireRole("admin"), patientHandler.DeletePatient)
 			}
@@ -176,24 +208,25 @@ func main() {
 			// Vitals routes
 			vitals := protected.Group("/vitals")
 			{
-				vitals.GET("/patient/:patient_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), vitalsHandler.GetPatientVitals)
+				vitals.GET("/patient/:patient_id", vitalsHandler.GetPatientVitals)
 				vitals.POST("", middleware.RequireRole("admin", "nurse"), vitalsHandler.CreateVitals)
-				vitals.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), vitalsHandler.GetVitalsByID)
+				vitals.GET("/:id", vitalsHandler.GetVitalsByID)
 				vitals.PATCH("/:id", middleware.RequireRole("admin", "nurse"), vitalsHandler.UpdateVitals)
 				vitals.DELETE("/:id", middleware.RequireRole("admin"), vitalsHandler.DeleteVitals)
-				vitals.GET("/patient/:patient_id/trend", middleware.RequireRole("admin", "doctor", "nurse", "patient"), vitalsHandler.GetVitalsTrend)
+				vitals.GET("/patient/:patient_id/trend", vitalsHandler.GetVitalsTrend)
 				vitals.GET("/patient/:patient_id/alerts", middleware.RequireRole("admin", "doctor", "nurse"), vitalsHandler.GetVitalsAlerts)
 			}
 
 			// Doctor management routes (protected)
 			doctors := protected.Group("/doctors")
 			{
-				doctors.GET("/me", doctorHandler.GetMe)
 				doctors.POST("", middleware.RequireRole("admin"), doctorHandler.CreateDoctor)
 				doctors.PATCH("/:id", middleware.RequireRole("admin"), doctorHandler.UpdateDoctor)
 				doctors.DELETE("/:id", middleware.RequireRole("admin"), doctorHandler.DeleteDoctor)
 				doctors.GET("/:id/slots", doctorHandler.GetAvailableSlots)
-				doctors.GET("/ipd-patients", middleware.RequireRole("doctor"), doctorHandler.GetIPDPatients)
+				doctors.GET("/analytics/my", middleware.RequireRole("doctor"), doctorHandler.GetMyAnalytics)
+				doctors.GET("/:id/analytics", middleware.RequireRole("admin", "doctor"), doctorHandler.GetDoctorAnalytics)
+				doctors.GET("/:id/performance", middleware.RequireRole("admin", "doctor"), doctorHandler.GetDoctorPerformanceMetrics)
 			}
 
 			// Nurse management routes (protected)
@@ -210,12 +243,14 @@ func main() {
 			// Appointment routes
 			appointments := protected.Group("/appointments")
 			{
-				appointments.GET("", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAllAppointments)
+				appointments.GET("", appointmentHandler.GetAllAppointments)
 				appointments.POST("", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.BookAppointment)
-				appointments.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAppointment)
+				appointments.GET("/today", middleware.RequireRole("admin", "receptionist"), appointmentHandler.GetTodayAppointments)
+				appointments.GET("/next-7-days", middleware.RequireRole("admin", "nurse", "doctor"), appointmentHandler.GetNext7DaysAppointments)
+				appointments.GET("/:id", appointmentHandler.GetAppointment)
 				appointments.GET("/:id/vitals", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAppointmentVitals)
 				appointments.PATCH("/:id/status", middleware.RequireRole("admin", "doctor"), appointmentHandler.UpdateAppointmentStatus)
-				appointments.PATCH("/:id/vitals", middleware.RequireRole("nurse"), appointmentHandler.UpdateAppointmentVitals)
+				appointments.PATCH("/:id/vitals", middleware.RequireRole("admin", "nurse"), appointmentHandler.UpdateAppointmentVitals)
 			}
 
 			// Prescription routes
@@ -265,10 +300,56 @@ func main() {
 			// Billing routes
 			billing := protected.Group("/billing")
 			{
-				billing.GET("", middleware.RequireRole("admin", "doctor"), billingHandler.ListBills)
+				billing.GET("", middleware.RequireRole("admin", "doctor", "patient"), billingHandler.ListBills)
 				billing.POST("/generate", middleware.RequireRole("admin", "doctor", "nurse"), billingHandler.GenerateBill)
 				billing.GET("/:id", middleware.RequireRole("admin", "doctor", "patient"), billingHandler.GetBill)
 				billing.PATCH("/:id/pay", middleware.RequireRole("admin", "patient"), billingHandler.PayBill)
+			}
+
+			// OPD/Reception routes
+			opd := protected.Group("/opd")
+			{
+				// UHID routes
+				uhid := opd.Group("/uhid")
+				{
+					uhid.POST("/generate", middleware.RequireRole("admin", "receptionist"), uhidHandler.GenerateUHID)
+					uhid.GET("/patient/:patient_id", middleware.RequireRole("admin", "receptionist", "doctor", "nurse"), uhidHandler.GetUHIDByPatient)
+					uhid.GET("/validate/:uhid", middleware.RequireRole("admin", "receptionist", "doctor", "nurse"), uhidHandler.ValidateUHID)
+				}
+
+				// Insurance policy routes
+				insurance := opd.Group("/insurance")
+				{
+					insurance.POST("/policies", middleware.RequireRole("admin", "receptionist"), insuranceHandler.CreateInsurancePolicy)
+					insurance.GET("/patient/:patient_id", middleware.RequireRole("admin", "receptionist", "doctor", "patient"), insuranceHandler.GetInsurancePoliciesByPatient)
+					insurance.GET("/active/:patient_id", middleware.RequireRole("admin", "receptionist", "doctor", "patient"), insuranceHandler.GetActiveInsurancePolicy)
+					insurance.PUT("/policies/:policy_id", middleware.RequireRole("admin", "receptionist"), insuranceHandler.UpdateInsurancePolicy)
+					insurance.DELETE("/policies/:policy_id", middleware.RequireRole("admin", "receptionist"), insuranceHandler.DeactivateInsurancePolicy)
+				}
+
+				// Waiting list routes
+				waitingList := opd.Group("/waiting-list")
+				{
+					waitingList.POST("/add", middleware.RequireRole("admin", "receptionist"), waitingListHandler.AddToWaitingList)
+					waitingList.GET("/doctor/:doctor_id", middleware.RequireRole("admin", "receptionist", "doctor"), waitingListHandler.GetDoctorWaitingList)
+					waitingList.POST("/call-next/:doctor_id", middleware.RequireRole("admin", "receptionist"), waitingListHandler.CallNextPatient)
+					waitingList.PUT("/:id/mark-seen", middleware.RequireRole("admin", "doctor", "nurse"), waitingListHandler.MarkPatientSeen)
+					waitingList.PUT("/:id/complete", middleware.RequireRole("admin", "doctor"), waitingListHandler.CompleteConsultation)
+					waitingList.DELETE("/:id/cancel", middleware.RequireRole("admin", "receptionist", "patient"), waitingListHandler.CancelWaitingListEntry)
+					waitingList.GET("/patient/:patient_id/position", middleware.RequireRole("admin", "patient"), waitingListHandler.GetPatientQueuePosition)
+					waitingList.GET("/doctor/:doctor_id/estimated-time", middleware.RequireRole("admin", "receptionist", "patient"), waitingListHandler.GetEstimatedWaitTime)
+				}
+
+				// OPD Receipt routes
+				receipt := opd.Group("/receipt")
+				{
+					receipt.POST("/generate", middleware.RequireRole("admin", "receptionist"), opdReceiptHandler.GenerateOPDReceipt)
+					receipt.GET("/:id", middleware.RequireRole("admin", "receptionist", "doctor", "patient"), opdReceiptHandler.GetOPDReceipt)
+					receipt.GET("/number/:receipt_number", middleware.RequireRole("admin", "receptionist", "doctor", "patient"), opdReceiptHandler.GetOPDReceiptByNumber)
+					receipt.GET("/patient/:patient_id", middleware.RequireRole("admin", "receptionist", "patient"), opdReceiptHandler.GetPatientOPDReceipts)
+					receipt.POST("/:id/print", middleware.RequireRole("admin", "receptionist"), opdReceiptHandler.PrintOPDReceipt)
+					receipt.GET("/:id/summary", middleware.RequireRole("admin", "receptionist", "doctor", "patient"), opdReceiptHandler.GetReceiptSummary)
+				}
 			}
 
 			// Specialization management routes (admin only)
@@ -291,55 +372,117 @@ func main() {
 				hospitals.DELETE("/:id", middleware.RequireRole("admin"), hospitalHandler.DeleteHospital)
 			}
 
+			// Rating routes
+			ratings := protected.Group("/ratings")
+			{
+				ratings.POST("", middleware.RequireRole("admin", "patient"), ratingHandler.CreateRating)
+				ratings.GET("", middleware.RequireRole("admin", "doctor", "patient"), ratingHandler.ListRatings)
+				ratings.GET("/doctor/:doctor_id", middleware.RequireRole("admin", "doctor", "patient"), ratingHandler.GetDoctorRatings)
+				ratings.GET("/patient/:patient_id", middleware.RequireRole("admin", "patient"), ratingHandler.GetPatientRatings)
+				ratings.GET("/:id", middleware.RequireRole("admin", "doctor", "patient"), ratingHandler.GetRating)
+				ratings.PUT("/:id", middleware.RequireRole("admin", "patient"), ratingHandler.UpdateRating)
+				ratings.DELETE("/:id", middleware.RequireRole("admin", "patient"), ratingHandler.DeleteRating)
+			}
+
 			// Bed management routes
 			beds := protected.Group("/beds")
 			{
-				beds.GET("/stats", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedStats)
-				beds.GET("/available", middleware.RequireRole("admin", "nurse"), bedHandler.GetAvailableBeds)
-				beds.GET("/patient/:patient_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), bedHandler.GetPatientBed)
-				beds.GET("/ward/:ward", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedsByWard)
-				beds.GET("/ward/:ward/stats", middleware.RequireRole("admin", "nurse"), bedHandler.GetWardStats)
-				beds.GET("/status/:status", middleware.RequireRole("admin", "nurse"), bedHandler.GetBedsByStatus)
+				beds.GET("/all", bedHandler.GetAllBedsWithOccupancy)
+				beds.GET("/stats", bedHandler.GetBedStats)
+				beds.GET("/available", bedHandler.GetAvailableBeds)
+				beds.GET("/patient/:patient_id", bedHandler.GetPatientBed)
+				beds.GET("/ward/:ward", bedHandler.GetBedsByWard)
+				beds.GET("/ward/:ward/stats", bedHandler.GetWardStats)
+				beds.GET("/status/:status", bedHandler.GetBedsByStatus)
 				beds.POST("/admit", middleware.RequireRole("admin", "nurse"), bedHandler.AdmitPatient)
 				beds.POST("/discharge", middleware.RequireRole("admin", "nurse"), bedHandler.DischargePatient)
 				beds.PATCH("/:id/status", middleware.RequireRole("admin", "nurse"), bedHandler.UpdateBedStatus)
 			}
 
-			// Admission records - IPD management
+			// Admission records routes (complete CRUD)
 			admissions := protected.Group("/admissions")
 			{
-				admissions.POST("", middleware.RequireRole("admin", "doctor"), doctorHandler.CreateAdmission)
-				admissions.GET("", middleware.RequireRole("admin", "doctor", "nurse"), func(c *gin.Context) {
-					page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-					limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-					data, total, err := admissionRepo.GetAll(page, limit)
-					if err != nil {
-						c.JSON(500, gin.H{"error": err.Error()})
-						return
-					}
-					c.JSON(200, gin.H{"data": data, "total": total})
-				})
+				admissions.GET("", admissionHandler.GetAllAdmissions)
+				admissions.POST("", middleware.RequireRole("admin", "doctor", "nurse"), admissionHandler.CreateAdmission)
+				admissions.GET("/:id", admissionHandler.GetAdmissionByID)
+				admissions.PATCH("/:id", middleware.RequireRole("admin", "doctor", "nurse"), admissionHandler.UpdateAdmission)
+				admissions.DELETE("/:id", middleware.RequireRole("admin"), admissionHandler.DeleteAdmission)
+				admissions.GET("/active", admissionHandler.GetActiveAdmissions)
+				admissions.GET("/patient/:patient_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), admissionHandler.GetPatientAdmissions)
 			}
 
-			// Progress notes - daily SOAP notes for admitted patients
+			// Progress notes routes
 			progressNotes := protected.Group("/progress-notes")
 			{
-				progressNotes.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateProgressNote)
-				// Add GET endpoints as needed
+				progressNotes.GET("", middleware.RequireRole("admin", "doctor", "nurse"), doctorHandler.GetProgressNotes)
+				progressNotes.POST("", middleware.RequireRole("admin", "doctor"), doctorHandler.CreateProgressNote)
+				progressNotes.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetProgressNote)
+				progressNotes.PATCH("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.UpdateProgressNote)
+				progressNotes.DELETE("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.DeleteProgressNote)
+				progressNotes.GET("/admission/:admission_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetAdmissionProgressNotes)
 			}
 
-			// Nurse instructions for admitted patients
+			// Nurse instructions routes
 			nurseInstructions := protected.Group("/nurse-instructions")
 			{
-				nurseInstructions.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateNurseInstruction)
-				// Add GET endpoints as needed
+				nurseInstructions.GET("", middleware.RequireRole("admin", "doctor", "nurse"), doctorHandler.GetNurseInstructions)
+				nurseInstructions.POST("", middleware.RequireRole("admin", "doctor"), doctorHandler.CreateNurseInstruction)
+				nurseInstructions.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetNurseInstruction)
+				nurseInstructions.PATCH("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.UpdateNurseInstruction)
+				nurseInstructions.DELETE("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.DeleteNurseInstruction)
+				nurseInstructions.GET("/admission/:admission_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetAdmissionNurseInstructions)
 			}
 
-			// Discharge summaries
+			// Discharge summaries routes
 			dischargeSummaries := protected.Group("/discharge-summaries")
 			{
-				dischargeSummaries.POST("", middleware.RequireRole("doctor"), doctorHandler.CreateDischargeSummary)
-				// Add GET endpoints as needed
+				dischargeSummaries.GET("", middleware.RequireRole("admin", "doctor", "nurse"), doctorHandler.GetDischargeSummaries)
+				dischargeSummaries.POST("", middleware.RequireRole("admin", "doctor"), doctorHandler.CreateDischargeSummary)
+				dischargeSummaries.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetDischargeSummary)
+				dischargeSummaries.PATCH("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.UpdateDischargeSummary)
+				dischargeSummaries.DELETE("/:id", middleware.RequireRole("admin", "doctor"), doctorHandler.DeleteDischargeSummary)
+				dischargeSummaries.GET("/admission/:admission_id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), doctorHandler.GetAdmissionDischargeSummary)
+			}
+
+			// Export routes (data exports to Excel/PDF)
+			exports := protected.Group("/exports")
+			{
+				exports.GET("/appointments/excel", middleware.RequireRole("admin", "doctor"), exportHandler.ExportAppointmentsExcel)
+				exports.GET("/prescriptions/excel", middleware.RequireRole("admin", "doctor"), exportHandler.ExportPrescriptionsExcel)
+				exports.GET("/admissions/excel", middleware.RequireRole("admin", "doctor"), exportHandler.ExportAdmissionsExcel)
+				exports.GET("/lab-orders/excel", middleware.RequireRole("admin", "doctor"), exportHandler.ExportLabOrdersExcel)
+				exports.GET("/discharge-summary/:admission_id", middleware.RequireRole("admin", "doctor", "patient"), exportHandler.ExportDischargeSummaryText)
+			}
+
+			// Advanced Analytics routes (new comprehensive analytics endpoints)
+			advancedAnalytics := protected.Group("/advanced-analytics")
+			{
+				// Doctor statistics
+				advancedAnalytics.GET("/doctors/:doctor_id/statistics", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetDoctorStatistics)
+				advancedAnalytics.GET("/doctors/rankings", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetDoctorRankings)
+
+				// Appointment trends
+				advancedAnalytics.GET("/appointments/trends", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetAppointmentTrends)
+
+				// Lab metrics
+				advancedAnalytics.GET("/lab/completion", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetLabCompletionMetrics)
+
+				// Patient outcomes
+				advancedAnalytics.GET("/patients/outcomes", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetPatientOutcomeStatistics)
+
+				// Revenue analytics
+				advancedAnalytics.GET("/doctors/:doctor_id/revenue", middleware.RequireRole("admin", "doctor"), analyticsHandler.GetRevenueStatistics)
+
+				// Performance metrics
+				advancedAnalytics.GET("/performance", middleware.RequireRole("admin"), analyticsHandler.GetPerformanceMetrics)
+				advancedAnalytics.GET("/cache/stats", middleware.RequireRole("admin"), analyticsHandler.GetCacheStats)
+			}
+
+			// Analytics routes (legacy)
+			analytics := protected.Group("/analytics")
+			{
+				analytics.GET("/admissions", middleware.RequireRole("admin", "doctor", "nurse"), doctorHandler.GetAdmissionStats)
+				analytics.GET("/doctor/:doctor_id/performance", middleware.RequireRole("admin", "doctor"), doctorHandler.GetDoctorPerformanceMetrics)
 			}
 
 			// Debug route - check current user's role
@@ -352,6 +495,49 @@ func main() {
 					"email":     email,
 					"role":      role,
 					"role_type": fmt.Sprintf("%T", role),
+				})
+			})
+
+			// Debug route - check database counts
+			protected.GET("/debug/counts", func(c *gin.Context) {
+				var appointmentCount int64
+				var patientCount int64
+				var doctorCount int64
+				var userCount int64
+
+				config.DB.Model(&model.Appointment{}).Count(&appointmentCount)
+				config.DB.Model(&model.Patient{}).Count(&patientCount)
+				config.DB.Model(&model.Doctor{}).Count(&doctorCount)
+				config.DB.Model(&model.User{}).Count(&userCount)
+
+				c.JSON(200, gin.H{
+					"appointments": appointmentCount,
+					"patients":     patientCount,
+					"doctors":      doctorCount,
+					"users":        userCount,
+				})
+			})
+
+			// Debug route - raw appointments data
+			protected.GET("/debug/appointments-raw", func(c *gin.Context) {
+				var appointments []model.Appointment
+				result := config.DB.
+					Preload("Patient").
+					Preload("Patient.User").
+					Preload("Doctor").
+					Preload("Doctor.User").
+					Limit(50).
+					Order("created_at DESC").
+					Find(&appointments)
+
+				if result.Error != nil {
+					c.JSON(500, gin.H{"error": result.Error.Error()})
+					return
+				}
+
+				c.JSON(200, gin.H{
+					"count":        len(appointments),
+					"appointments": appointments,
 				})
 			})
 		}

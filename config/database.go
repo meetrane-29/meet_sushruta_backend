@@ -59,6 +59,7 @@ func AutoMigrate() error {
 		&model.ProgressNote{},
 		&model.NurseInstruction{},
 		&model.DischargeSummary{},
+		&model.Rating{},
 	}
 
 	if err := DB.AutoMigrate(models...); err != nil {

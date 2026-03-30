@@ -99,7 +99,7 @@ func (h *DoctorHandler) CreateDoctor(c *gin.Context) {
 // Supports search by name, specialization, or slug
 func (h *DoctorHandler) GetAllDoctors(c *gin.Context) {
 	page := 1
-	limit := 10
+	limit := 100
 	search := c.Query("search")
 	slug := c.Query("slug")
 
@@ -281,49 +281,9 @@ func (h *DoctorHandler) GetMe(c *gin.Context) {
 	utils.OK(c, doctor)
 }
 
-// CreateAdmission creates a new admission record
-// POST /api/v1/admissions
-type CreateAdmissionRequest struct {
-	PatientID     uuid.UUID `json:"patient_id" binding:"required"`
-	DoctorID      uuid.UUID `json:"doctor_id" binding:"required"`
-	BedID         uuid.UUID `json:"bed_id"`
-	AdmissionDate string    `json:"admission_date" binding:"required"` // YYYY-MM-DD HH:MM
-	Reason        string    `json:"reason" binding:"required"`
-	Diagnosis     string    `json:"diagnosis"`
-	Ward          string    `json:"ward"`
-	RoomNumber    string    `json:"room_number"`
-	IsEmergency   bool      `json:"is_emergency"`
-	Notes         string    `json:"notes"`
-}
-
-func (h *DoctorHandler) CreateAdmission(c *gin.Context) {
-	var req CreateAdmissionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Fail(c, 400, "invalid request: "+err.Error())
-		return
-	}
-
-	admission := &model.AdmissionRecord{
-		PatientID:     req.PatientID,
-		DoctorID:      req.DoctorID,
-		BedID:         req.BedID,
-		AdmissionDate: req.AdmissionDate,
-		Reason:        req.Reason,
-		Diagnosis:     req.Diagnosis,
-		Status:        model.AdmissionActive,
-		Ward:          req.Ward,
-		RoomNumber:    req.RoomNumber,
-		IsEmergency:   req.IsEmergency,
-		Notes:         req.Notes,
-	}
-
-	if err := h.admissionRepository.Create(admission); err != nil {
-		utils.Fail(c, 400, "failed to create admission: "+err.Error())
-		return
-	}
-
-	utils.OK(c, admission)
-}
+// CreateIPDPatients - kept for compatibility
+// Use admission handler for creating admissions instead
+// Deprecated - use POST /api/v1/admissions instead
 
 // GetIPDPatients retrieves all admitted patients for a doctor
 // GET /api/v1/doctors/ipd-patients
@@ -534,4 +494,739 @@ func (h *DoctorHandler) CreateDischargeSummary(c *gin.Context) {
 	}
 
 	utils.OK(c, discharge)
+}
+
+// ==================== PROGRESS NOTES - CRUD OPERATIONS ====================
+
+// GetProgressNotes retrieves all progress notes with optional filtering
+// GET /api/v1/progress-notes
+func (h *DoctorHandler) GetProgressNotes(c *gin.Context) {
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	notes, total, err := h.progressNoteRepository.GetAll(page, limit)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch progress notes: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"data":  notes,
+		"total": total,
+		"page":  page,
+	})
+}
+
+// GetProgressNote retrieves a specific progress note
+// GET /api/v1/progress-notes/:id
+func (h *DoctorHandler) GetProgressNote(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid progress note id")
+		return
+	}
+
+	note, err := h.progressNoteRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "progress note not found")
+		return
+	}
+
+	utils.OK(c, note)
+}
+
+// UpdateProgressNote updates a progress note
+// PATCH /api/v1/progress-notes/:id
+type UpdateProgressNoteRequest struct {
+	Subjective     string  `json:"subjective"`
+	Objective      string  `json:"objective"`
+	Assessment     string  `json:"assessment"`
+	Plan           string  `json:"plan"`
+	Vitals         string  `json:"vitals"`
+	Medications    string  `json:"medications"`
+	NextReviewDate *string `json:"next_review_date"`
+	Notes          string  `json:"notes"`
+}
+
+func (h *DoctorHandler) UpdateProgressNote(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid progress note id")
+		return
+	}
+
+	var req UpdateProgressNoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request: "+err.Error())
+		return
+	}
+
+	note, err := h.progressNoteRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "progress note not found")
+		return
+	}
+
+	if req.Subjective != "" {
+		note.Subjective = req.Subjective
+	}
+	if req.Objective != "" {
+		note.Objective = req.Objective
+	}
+	if req.Assessment != "" {
+		note.Assessment = req.Assessment
+	}
+	if req.Plan != "" {
+		note.Plan = req.Plan
+	}
+	if req.Vitals != "" {
+		note.Vitals = req.Vitals
+	}
+	if req.Medications != "" {
+		note.Medications = req.Medications
+	}
+	if req.NextReviewDate != nil {
+		note.NextReviewDate = req.NextReviewDate
+	}
+	if req.Notes != "" {
+		note.Notes = req.Notes
+	}
+
+	if err := h.progressNoteRepository.Update(note); err != nil {
+		utils.Fail(c, 400, "failed to update progress note: "+err.Error())
+		return
+	}
+
+	utils.OK(c, note)
+}
+
+// DeleteProgressNote deletes a progress note
+// DELETE /api/v1/progress-notes/:id
+func (h *DoctorHandler) DeleteProgressNote(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid progress note id")
+		return
+	}
+
+	if err := h.progressNoteRepository.SoftDelete(id); err != nil {
+		utils.Fail(c, 400, "failed to delete progress note: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"message": "progress note deleted successfully",
+	})
+}
+
+// GetAdmissionProgressNotes retrieves all progress notes for an admission
+// GET /api/v1/progress-notes/admission/:admission_id
+func (h *DoctorHandler) GetAdmissionProgressNotes(c *gin.Context) {
+	admissionIDStr := c.Param("admission_id")
+	admissionID, err := uuid.Parse(admissionIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid admission id")
+		return
+	}
+
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	notes, total, err := h.progressNoteRepository.GetByAdmissionID(admissionID, page, limit)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch progress notes: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"data":  notes,
+		"total": total,
+		"page":  page,
+	})
+}
+
+// ==================== NURSE INSTRUCTIONS - CRUD OPERATIONS ====================
+
+// GetNurseInstructions retrieves all nurse instructions
+// GET /api/v1/nurse-instructions
+func (h *DoctorHandler) GetNurseInstructions(c *gin.Context) {
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	instructions, total, err := h.nurseInstructionRepository.GetAll(page, limit)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch nurse instructions: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"data":  instructions,
+		"total": total,
+		"page":  page,
+	})
+}
+
+// GetNurseInstruction retrieves a specific nurse instruction
+// GET /api/v1/nurse-instructions/:id
+func (h *DoctorHandler) GetNurseInstruction(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid nurse instruction id")
+		return
+	}
+
+	instruction, err := h.nurseInstructionRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "nurse instruction not found")
+		return
+	}
+
+	utils.OK(c, instruction)
+}
+
+// UpdateNurseInstruction updates a nurse instruction
+// PATCH /api/v1/nurse-instructions/:id
+type UpdateNurseInstructionRequest struct {
+	VitalsFrequency     string `json:"vitals_frequency"`
+	VitalsParameters    string `json:"vitals_parameters"`
+	DietType            string `json:"diet_type"`
+	DietaryRestrictions string `json:"dietary_restrictions"`
+	FluidsRestriction   string `json:"fluids_restriction"`
+	MedicationNotes     string `json:"medication_notes"`
+	DrugAllergies       string `json:"drug_allergies"`
+	ActivityLevel       string `json:"activity_level"`
+	ActivityNotes       string `json:"activity_notes"`
+	SpecialMonitoring   string `json:"special_monitoring"`
+	CautionPoints       string `json:"caution_points"`
+	HygieneInstructions string `json:"hygiene_instructions"`
+	OtherInstructions   string `json:"other_instructions"`
+	Status              string `json:"status"`
+}
+
+func (h *DoctorHandler) UpdateNurseInstruction(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid nurse instruction id")
+		return
+	}
+
+	var req UpdateNurseInstructionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request: "+err.Error())
+		return
+	}
+
+	instruction, err := h.nurseInstructionRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "nurse instruction not found")
+		return
+	}
+
+	if req.VitalsFrequency != "" {
+		instruction.VitalsFrequency = req.VitalsFrequency
+	}
+	if req.VitalsParameters != "" {
+		instruction.VitalsParameters = req.VitalsParameters
+	}
+	if req.DietType != "" {
+		instruction.DietType = req.DietType
+	}
+	if req.DietaryRestrictions != "" {
+		instruction.DietaryRestrictions = req.DietaryRestrictions
+	}
+	if req.FluidsRestriction != "" {
+		instruction.FluidsRestriction = req.FluidsRestriction
+	}
+	if req.MedicationNotes != "" {
+		instruction.MedicationNotes = req.MedicationNotes
+	}
+	if req.DrugAllergies != "" {
+		instruction.DrugAllergies = req.DrugAllergies
+	}
+	if req.ActivityLevel != "" {
+		instruction.ActivityLevel = req.ActivityLevel
+	}
+	if req.ActivityNotes != "" {
+		instruction.ActivityNotes = req.ActivityNotes
+	}
+	if req.SpecialMonitoring != "" {
+		instruction.SpecialMonitoring = req.SpecialMonitoring
+	}
+	if req.CautionPoints != "" {
+		instruction.CautionPoints = req.CautionPoints
+	}
+	if req.HygieneInstructions != "" {
+		instruction.HygieneInstructions = req.HygieneInstructions
+	}
+	if req.OtherInstructions != "" {
+		instruction.OtherInstructions = req.OtherInstructions
+	}
+	if req.Status != "" {
+		instruction.Status = req.Status
+	}
+
+	if err := h.nurseInstructionRepository.Update(instruction); err != nil {
+		utils.Fail(c, 400, "failed to update nurse instruction: "+err.Error())
+		return
+	}
+
+	utils.OK(c, instruction)
+}
+
+// DeleteNurseInstruction deletes a nurse instruction
+// DELETE /api/v1/nurse-instructions/:id
+func (h *DoctorHandler) DeleteNurseInstruction(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid nurse instruction id")
+		return
+	}
+
+	if err := h.nurseInstructionRepository.SoftDelete(id); err != nil {
+		utils.Fail(c, 400, "failed to delete nurse instruction: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"message": "nurse instruction deleted successfully",
+	})
+}
+
+// GetAdmissionNurseInstructions retrieves all nurse instructions for an admission
+// GET /api/v1/nurse-instructions/admission/:admission_id
+func (h *DoctorHandler) GetAdmissionNurseInstructions(c *gin.Context) {
+	admissionIDStr := c.Param("admission_id")
+	admissionID, err := uuid.Parse(admissionIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid admission id")
+		return
+	}
+
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	instructions, total, err := h.nurseInstructionRepository.GetByAdmissionID(admissionID, page, limit)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch nurse instructions: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"data":  instructions,
+		"total": total,
+		"page":  page,
+	})
+}
+
+// ==================== DISCHARGE SUMMARIES - CRUD OPERATIONS ====================
+
+// GetDischargeSummaries retrieves all discharge summaries
+// GET /api/v1/discharge-summaries
+func (h *DoctorHandler) GetDischargeSummaries(c *gin.Context) {
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	summaries, total, err := h.dischargeSummaryRepository.GetAll(page, limit)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch discharge summaries: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"data":  summaries,
+		"total": total,
+		"page":  page,
+	})
+}
+
+// GetDischargeSummary retrieves a specific discharge summary
+// GET /api/v1/discharge-summaries/:id
+func (h *DoctorHandler) GetDischargeSummary(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid discharge summary id")
+		return
+	}
+
+	summary, err := h.dischargeSummaryRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "discharge summary not found")
+		return
+	}
+
+	utils.OK(c, summary)
+}
+
+// UpdateDischargeSummary updates a discharge summary
+// PATCH /api/v1/discharge-summaries/:id
+type UpdateDischargeSummaryRequest struct {
+	FinalDiagnosis         string  `json:"final_diagnosis"`
+	ProceduresPerformed    string  `json:"procedures_performed"`
+	ComplicationsIfAny     string  `json:"complications_if_any"`
+	DischargeMedications   string  `json:"discharge_medications"`
+	MedicationInstructions string  `json:"medication_instructions"`
+	DietRecommendation     string  `json:"diet_recommendation"`
+	ActivityRecommendation string  `json:"activity_recommendation"`
+	FollowUpInstructions   string  `json:"follow_up_instructions"`
+	FollowUpDate           *string `json:"follow_up_date"`
+	FollowUpDoctor         *string `json:"follow_up_doctor"`
+	FollowUpSpecialty      *string `json:"follow_up_specialty"`
+	WarningSymptoms        string  `json:"warning_symptoms"`
+	WhenToReturnHospital   string  `json:"when_to_return_hospital"`
+	Outcome                string  `json:"outcome"`
+	PatientEducation       string  `json:"patient_education"`
+	Notes                  string  `json:"notes"`
+}
+
+func (h *DoctorHandler) UpdateDischargeSummary(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid discharge summary id")
+		return
+	}
+
+	var req UpdateDischargeSummaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request: "+err.Error())
+		return
+	}
+
+	summary, err := h.dischargeSummaryRepository.GetByID(id)
+	if err != nil {
+		utils.Fail(c, 404, "discharge summary not found")
+		return
+	}
+
+	if req.FinalDiagnosis != "" {
+		summary.FinalDiagnosis = req.FinalDiagnosis
+	}
+	if req.ProceduresPerformed != "" {
+		summary.ProceduresPerformed = req.ProceduresPerformed
+	}
+	if req.ComplicationsIfAny != "" {
+		summary.ComplicationsIfAny = req.ComplicationsIfAny
+	}
+	if req.DischargeMedications != "" {
+		summary.DischargeMedications = req.DischargeMedications
+	}
+	if req.MedicationInstructions != "" {
+		summary.MedicationInstructions = req.MedicationInstructions
+	}
+	if req.DietRecommendation != "" {
+		summary.DietRecommendation = req.DietRecommendation
+	}
+	if req.ActivityRecommendation != "" {
+		summary.ActivityRecommendation = req.ActivityRecommendation
+	}
+	if req.FollowUpInstructions != "" {
+		summary.FollowUpInstructions = req.FollowUpInstructions
+	}
+	if req.FollowUpDate != nil {
+		summary.FollowUpDate = req.FollowUpDate
+	}
+	if req.FollowUpDoctor != nil {
+		summary.FollowUpDoctor = req.FollowUpDoctor
+	}
+	if req.FollowUpSpecialty != nil {
+		summary.FollowUpSpecialty = req.FollowUpSpecialty
+	}
+	if req.WarningSymptoms != "" {
+		summary.WarningSymptoms = req.WarningSymptoms
+	}
+	if req.WhenToReturnHospital != "" {
+		summary.WhenToReturnHospital = req.WhenToReturnHospital
+	}
+	if req.Outcome != "" {
+		summary.Outcome = model.PatientOutcome(req.Outcome)
+	}
+	if req.PatientEducation != "" {
+		summary.PatientEducation = req.PatientEducation
+	}
+	if req.Notes != "" {
+		summary.Notes = req.Notes
+	}
+
+	if err := h.dischargeSummaryRepository.Update(summary); err != nil {
+		utils.Fail(c, 400, "failed to update discharge summary: "+err.Error())
+		return
+	}
+
+	utils.OK(c, summary)
+}
+
+// DeleteDischargeSummary deletes a discharge summary
+// DELETE /api/v1/discharge-summaries/:id
+func (h *DoctorHandler) DeleteDischargeSummary(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid discharge summary id")
+		return
+	}
+
+	if err := h.dischargeSummaryRepository.SoftDelete(id); err != nil {
+		utils.Fail(c, 400, "failed to delete discharge summary: "+err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"message": "discharge summary deleted successfully",
+	})
+}
+
+// GetAdmissionDischargeSummary retrieves discharge summary for an admission
+// GET /api/v1/discharge-summaries/admission/:admission_id
+func (h *DoctorHandler) GetAdmissionDischargeSummary(c *gin.Context) {
+	admissionIDStr := c.Param("admission_id")
+	admissionID, err := uuid.Parse(admissionIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid admission id")
+		return
+	}
+
+	summary, err := h.dischargeSummaryRepository.GetByAdmissionID(admissionID)
+	if err != nil {
+		utils.Fail(c, 404, "discharge summary not found for this admission")
+		return
+	}
+
+	utils.OK(c, summary)
+}
+
+// ==================== ANALYTICS & REPORTING ====================
+
+// GetDoctorAnalytics retrieves analytics dashboard data for doctors
+// GET /api/v1/doctors/:id/analytics
+func (h *DoctorHandler) GetDoctorAnalytics(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid doctor id")
+		return
+	}
+
+	// Get doctor info
+	doctor, err := h.doctorService.GetDoctor(id)
+	if err != nil {
+		utils.Fail(c, 404, "doctor not found")
+		return
+	}
+
+	// Get active admissions count
+	admissions, _, _ := h.admissionRepository.GetActiveByDoctorID(id, 1, 1000)
+	activeAdmissionsCount := len(admissions)
+
+	// Get appointment count (would need appointmentRepo)
+	// For now, just return basic stats
+	analytics := gin.H{
+		"doctor_id":               id.String(),
+		"doctor_name":             doctor.User.FirstName + " " + doctor.User.LastName,
+		"specialization":          doctor.Specialization,
+		"consultation_fee":        doctor.ConsultationFee,
+		"active_admissions":       activeAdmissionsCount,
+		"total_appointments":      0, // Would query from appointment repository
+		"total_prescriptions":     0, // Would query from prescription repository
+		"total_lab_orders":        0, // Would query from lab repository
+		"patient_satisfied_count": 0, // Would query from ratings
+	}
+
+	utils.OK(c, analytics)
+}
+
+// GetMyAnalytics retrieves analytics for the current logged-in doctor
+// GET /api/v1/doctors/analytics/my
+func (h *DoctorHandler) GetMyAnalytics(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.Fail(c, 401, "unauthorized")
+		return
+	}
+
+	doctor, err := h.doctorService.GetDoctorByUserID(userID.(uuid.UUID))
+	if err != nil {
+		utils.Fail(c, 404, "doctor not found")
+		return
+	}
+
+	// Get active admissions
+	admissions, _, _ := h.admissionRepository.GetActiveByDoctorID(doctor.ID, 1, 1000)
+	activeAdmissionsCount := len(admissions)
+
+	// Get progress notes for this doctor
+	progressNotes, _, _ := h.progressNoteRepository.GetByDoctorID(doctor.ID, 1, 1000)
+	progressNotesCount := len(progressNotes)
+
+	// Get discharge summaries
+	dischargeSummaries, _, _ := h.dischargeSummaryRepository.GetByDoctorID(doctor.ID, 1, 1000)
+	dischargeSummariesCount := len(dischargeSummaries)
+
+	analytics := gin.H{
+		"doctor_id":             doctor.ID.String(),
+		"doctor_name":           doctor.User.FirstName + " " + doctor.User.LastName,
+		"specialization":        doctor.Specialization,
+		"consultation_fee":      doctor.ConsultationFee,
+		"active_admissions":     activeAdmissionsCount,
+		"total_progress_notes":  progressNotesCount,
+		"total_discharge_cases": dischargeSummariesCount,
+		"attendance_percentage": doctor.AttendancePercentage,
+		"leave_balance":         doctor.LeaveBalance,
+	}
+
+	utils.OK(c, analytics)
+}
+
+// GetAdmissionStats retrieves hospital admission statistics
+// GET /api/v1/analytics/admissions
+func (h *DoctorHandler) GetAdmissionStats(c *gin.Context) {
+	// Get all admissions with pagination
+	allAdmissions, total, err := h.admissionRepository.GetAll(1, 10000)
+	if err != nil {
+		utils.Fail(c, 500, "failed to fetch admissions: "+err.Error())
+		return
+	}
+
+	// Count by status
+	activeCount := 0
+	dischargedCount := 0
+	cancelledCount := 0
+
+	for _, admission := range allAdmissions {
+		switch admission.Status {
+		case model.AdmissionActive:
+			activeCount++
+		case model.AdmissionDischarge:
+			dischargedCount++
+		case model.AdmissionCancelled:
+			cancelledCount++
+		}
+	}
+
+	stats := gin.H{
+		"total_admissions":    total,
+		"active_admissions":   activeCount,
+		"discharged_patients": dischargedCount,
+		"cancelled_admission": cancelledCount,
+		"occupancy_rate":      float64(activeCount) / float64(total) * 100,
+	}
+
+	utils.OK(c, stats)
+}
+
+// GetDoctorPerformanceMetrics retrieves performance metrics for a doctor
+// GET /api/v1/doctors/:id/performance
+func (h *DoctorHandler) GetDoctorPerformanceMetrics(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid doctor id")
+		return
+	}
+
+	// Get discharge summaries to check outcomes
+	dischargeSummaries, total, _ := h.dischargeSummaryRepository.GetByDoctorID(id, 1, 10000)
+
+	recoveredCount := 0
+	improvedCount := 0
+	stableCount := 0
+	referredCount := 0
+
+	for _, summary := range dischargeSummaries {
+		switch summary.Outcome {
+		case model.OutcomeRecovered:
+			recoveredCount++
+		case model.OutcomeImproved:
+			improvedCount++
+		case model.OutcomeStableCondition:
+			stableCount++
+		case model.OutcomeReferredToSpecialist:
+			referredCount++
+		}
+	}
+
+	recoveryRate := float64(0)
+	improvedRate := float64(0)
+	if total > 0 {
+		recoveryRate = float64(recoveredCount) / float64(total) * 100
+		improvedRate = float64(improvedCount) / float64(total) * 100
+	}
+
+	metrics := gin.H{
+		"total_discharged_patients": total,
+		"recovered_count":           recoveredCount,
+		"improved_count":            improvedCount,
+		"stable_count":              stableCount,
+		"referred_count":            referredCount,
+		"recovery_rate":             recoveryRate,
+		"improved_rate":             improvedRate,
+	}
+
+	utils.OK(c, metrics)
 }

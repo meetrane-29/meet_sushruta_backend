@@ -43,12 +43,14 @@ type PharmacyService interface {
 }
 
 type pharmacyService struct {
-	medicineRepo repository.MedicineRepository
+	medicineRepo        repository.MedicineRepository
+	notificationService *NotificationService
 }
 
-func NewPharmacyService(medicineRepo repository.MedicineRepository) PharmacyService {
+func NewPharmacyService(medicineRepo repository.MedicineRepository, notificationService *NotificationService) PharmacyService {
 	return &pharmacyService{
-		medicineRepo: medicineRepo,
+		medicineRepo:        medicineRepo,
+		notificationService: notificationService,
 	}
 }
 
@@ -248,6 +250,33 @@ func (s *pharmacyService) Dispense(prescriptionID, staffID uuid.UUID) error {
 				return fmt.Errorf("failed to update medicine stock: %w", err)
 			}
 
+			// Check reorder level after stock update
+			if medicine.StockQuantity <= medicine.ReorderLevel {
+				title := "Low Stock Alert"
+				message := fmt.Sprintf("Medicine '%s' is at %d units, reorder level is %d",
+					medicine.Name, medicine.StockQuantity, medicine.ReorderLevel)
+
+				// Notify admin and pharmacist roles
+				if s.notificationService != nil {
+					// Get users with admin and pharmacist roles
+					var recipients []model.User
+					if err := tx.Where("role IN ?", []string{"admin", "pharmacist"}).Find(&recipients).Error; err == nil {
+						for _, recipient := range recipients {
+							notification := NotificationJob{
+								RecipientID: recipient.ID,
+								Type:        "pharmacy_low_stock",
+								Title:       title,
+								Message:     message,
+								Channel:     "in_app",
+								RelatedID:   &medicine.ID,
+								RelatedType: "Medicine",
+							}
+							s.notificationService.Send(notification)
+						}
+					}
+				}
+			}
+
 			// Create dispense history
 			history := &model.DispenseHistory{
 				PrescriptionID: prescriptionID,
@@ -279,7 +308,7 @@ func (s *pharmacyService) Dispense(prescriptionID, staffID uuid.UUID) error {
 	}
 
 	// After transaction commit, check reorder levels and notify admin
-	go checkAndNotifyReorderLevels()
+	go s.checkAndNotifyReorderLevels()
 
 	return nil
 }
@@ -293,25 +322,49 @@ func (s *pharmacyService) GetDispenseHistory(prescriptionID uuid.UUID) ([]model.
 	return s.medicineRepo.GetDispenseHistoryByPrescriptionID(prescriptionID)
 }
 
-// checkAndNotifyReorderLevels checks medicine stock levels and notifies if below threshold
-func checkAndNotifyReorderLevels() {
-	// TODO: Implement reorder level notification logic
-	// This could be done via email, SMS, or in-app notification to admin
-	fmt.Println("Checking medicine reorder levels...")
+// checkAndNotifyReorderLevels checks medicine stock levels and notifies admin if below threshold
+func (s *pharmacyService) checkAndNotifyReorderLevels() {
+	fmt.Println("[Pharmacy] Checking medicine reorder levels...")
 
 	db := config.GetDB()
 	var medicines []model.Medicine
 
 	// Find medicines below reorder level
 	if err := db.Where("stock_quantity <= reorder_level AND active = ?", true).Find(&medicines).Error; err != nil {
-		fmt.Printf("Error checking reorder levels: %v\n", err)
+		fmt.Printf("[Pharmacy] Error checking reorder levels: %v\n", err)
 		return
 	}
 
 	if len(medicines) > 0 {
-		fmt.Printf("Medicines below reorder level: %d\n", len(medicines))
-		for _, med := range medicines {
-			fmt.Printf("Medicine %s: stock=%d, reorder_level=%d\n", med.Name, med.StockQuantity, med.ReorderLevel)
+		fmt.Printf("[Pharmacy] %d medicines below reorder level\n", len(medicines))
+
+		// Get admin users to notify
+		var admins []model.User
+		if err := db.Where("role = ?", "admin").Find(&admins).Error; err != nil {
+			fmt.Printf("[Pharmacy] Error fetching admins: %v\n", err)
+			return
+		}
+
+		// Notify each admin
+		for _, admin := range admins {
+			for _, med := range medicines {
+				message := fmt.Sprintf("Medicine '%s' stock is at %d, reorder level is %d. Please reorder soon.",
+					med.Name, med.StockQuantity, med.ReorderLevel)
+
+				if s.notificationService != nil {
+					job := NotificationJob{
+						RecipientID: admin.ID,
+						Type:        "pharmacy_reorder",
+						Title:       "Medicine Stock Alert",
+						Message:     message,
+						Channel:     "in_app", // Default to in-app, can be extended to email/sms
+						RelatedID:   &med.ID,
+						RelatedType: "Medicine",
+					}
+					s.notificationService.Send(job)
+					fmt.Printf("[Pharmacy] Notification sent to admin %s for medicine %s\n", admin.Email, med.Name)
+				}
+			}
 		}
 	}
 }

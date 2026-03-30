@@ -2,10 +2,13 @@ package service
 
 import (
 	"log"
+	"os"
 
 	"meet_sushruta/model"
 
 	"github.com/google/uuid"
+	sendgrid "github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"gorm.io/gorm"
 )
 
@@ -95,8 +98,89 @@ func (s *NotificationService) processNotification(job NotificationJob) {
 	// Log to console (easy to swap with SMS/Email API later)
 	log.Printf("[Notification] Sent %s notification to user %s: %s", job.Type, job.RecipientID.String(), job.Message)
 
-	// TODO: Add external integrations here
-	// - SMS API call for Channel="sms"
-	// - Email API call for Channel="email"
-	// - Push notification for Channel="push"
+	// Handle external integrations based on channel
+	switch job.Channel {
+	case "email":
+		s.sendEmailNotification(notification)
+	case "sms":
+		s.sendSMSNotification(notification)
+	case "push":
+		s.sendPushNotification(notification)
+	case "in_app":
+		// Already saved to database above
+		log.Printf("[Notification] In-app notification ready for user %s", notification.UserID.String())
+	default:
+		log.Printf("[Notification] Unknown channel: %s", job.Channel)
+	}
+}
+
+// sendEmailNotification sends email via SendGrid
+func (s *NotificationService) sendEmailNotification(notification *model.Notification) {
+	user := &model.User{}
+	if err := s.db.Where("id = ?", notification.UserID).First(user).Error; err != nil {
+		log.Printf("[Email] Failed to fetch user: %v", err)
+		return
+	}
+
+	apiKey := os.Getenv("SENDGRID_API_KEY")
+	if apiKey == "" {
+		log.Printf("[Email] SENDGRID_API_KEY not set, skipping email to %s", user.Email)
+		return
+	}
+
+	from := mail.NewEmail("Meet Sushruta", "noreply@meetsushruta.com")
+	to := mail.NewEmail(user.FirstName+" "+user.LastName, user.Email)
+	message := mail.NewSingleEmail(from, notification.Title, to, notification.Message, notification.Message)
+
+	client := sendgrid.NewSendClient(apiKey)
+	response, err := client.Send(message)
+	if err != nil {
+		log.Printf("[Email] SendGrid error for user %s: %v", user.Email, err)
+		return
+	}
+	if response.StatusCode >= 400 {
+		log.Printf("[Email] SendGrid returned status %d for user %s", response.StatusCode, user.Email)
+		return
+	}
+
+	s.db.Model(notification).Update("is_email_sent", true)
+	log.Printf("[Email] Sent to %s: [%s]", user.Email, notification.Title)
+}
+
+// sendSMSNotification sends SMS via configured provider
+// TODO: Integrate with real SMS service (Twilio, AWS SNS, etc.)
+func (s *NotificationService) sendSMSNotification(notification *model.Notification) {
+	// Placeholder: Get user phone from database
+	user := &model.User{}
+	if err := s.db.Where("id = ?", notification.UserID).First(user).Error; err != nil {
+		log.Printf("[SMS] Failed to fetch user: %v", err)
+		return
+	}
+
+	log.Printf("[SMS] Would send SMS to %s: %s", user.Phone, notification.Message)
+
+	// TODO: Uncomment when SMS service is configured
+	// Example with Twilio:
+	// err := twilioClient.SendSMS(user.Phone, notification.Message)
+	// if err == nil {
+	//     s.db.Model(notification).Update("is_push_sent", true)
+	// }
+}
+
+// sendPushNotification sends push notification via configured provider
+// TODO: Integrate with real push service (Firebase Cloud Messaging, etc.)
+func (s *NotificationService) sendPushNotification(notification *model.Notification) {
+	log.Printf("[Push] Would send push notification to user %s: [%s] %s",
+		notification.UserID.String(), notification.Title, notification.Message)
+
+	// TODO: Uncomment when push service is configured
+	// Example with Firebase:
+	// topic := fmt.Sprintf("user_%s", notification.UserID.String())
+	// msg := &messaging.Message{
+	//     Topic: topic,
+	//     Data: map[string]string{"type": notification.Type},
+	// }
+	// if _, err := firebaseApp.SendMessage(ctx, msg); err == nil {
+	//     s.db.Model(notification).Update("is_push_sent", true)
+	// }
 }

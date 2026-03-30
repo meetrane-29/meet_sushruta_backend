@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"strconv"
 	"time"
 
+	"meet_sushruta/config"
 	"meet_sushruta/model"
 	"meet_sushruta/service"
 	"meet_sushruta/utils"
@@ -283,6 +285,54 @@ func (h *BedHandler) GetBedStats(c *gin.Context) {
 
 	utils.OK(c, gin.H{
 		"stats": stats,
+	})
+}
+
+// GetAllBedsWithOccupancy retrieves all beds with occupancy information
+// GET /api/v1/beds/all
+// Query params:
+//   - page: page number (default 1)
+//   - limit: records per page (default 20)
+func (h *BedHandler) GetAllBedsWithOccupancy(c *gin.Context) {
+	page := 1
+	limit := 20
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	// Get all beds from database
+	var beds []model.Bed
+	var total int64
+
+	query := config.DB.Model(&model.Bed{})
+	query.Count(&total)
+
+	if err := query.Offset(offset).Limit(limit).Find(&beds).Error; err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	responses := make([]BedResponse, 0)
+	for i := range beds {
+		responses = append(responses, *convertBedToResponse(&beds[i]))
+	}
+
+	utils.OK(c, gin.H{
+		"beds":  responses,
+		"total": total,
+		"page":  page,
+		"limit": limit,
 	})
 }
 

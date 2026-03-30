@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"strconv"
 
 	"meet_sushruta/model"
@@ -31,12 +32,12 @@ func NewAppointmentHandler(
 }
 
 type BookAppointmentRequest struct {
-	PatientID       uuid.UUID `json:"patient_id" binding:"required"`
-	DoctorID        uuid.UUID `json:"doctor_id" binding:"required"`
-	AppointmentDate string    `json:"appointment_date" binding:"required"` // YYYY-MM-DD
-	AppointmentTime string    `json:"appointment_time" binding:"required"` // HH:MM
-	Reason          string    `json:"reason"`
-	Notes           string    `json:"notes"`
+	PatientID       string `json:"patient_id" binding:"required,uuid"`
+	DoctorID        string `json:"doctor_id" binding:"required,uuid"`
+	AppointmentDate string `json:"appointment_date" binding:"required"` // YYYY-MM-DD
+	AppointmentTime string `json:"appointment_time" binding:"required"` // HH:MM
+	Reason          string `json:"reason"`
+	Notes           string `json:"notes"`
 }
 
 type UpdateAppointmentStatusRequest struct {
@@ -51,35 +52,100 @@ type UpdateAppointmentVitalsRequest struct {
 // BookAppointment creates a new appointment
 // POST /api/v1/appointments
 func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
+	fmt.Println("\n========== BookAppointment START ==========")
+	fmt.Printf("[BookAppointment] Auth Header: %s\n", c.GetHeader("Authorization"))
+
+	// Get context values from middleware
+	userID, exists := c.Get("userID")
+	fmt.Printf("[BookAppointment] Context userID (from middleware): %v (exists: %v)\n", userID, exists)
+
+	role, exists := c.Get("role")
+	fmt.Printf("[BookAppointment] Context role (from middleware): %v (exists: %v)\n", role, exists)
+
 	var req BookAppointmentRequest
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Fail(c, 400, "invalid request")
+		// Log the actual error for debugging
+		fmt.Printf("[BookAppointment] Binding error: %v\n", err.Error())
+		fmt.Printf("[BookAppointment] PatientID received: '%v' (type: %T)\n", req.PatientID, req.PatientID)
+		fmt.Printf("[BookAppointment] DoctorID received: '%v' (type: %T)\n", req.DoctorID, req.DoctorID)
+		utils.Fail(c, 400, fmt.Sprintf("invalid request: %v", err.Error()))
+		fmt.Println("========== BookAppointment END (Binding Error) ==========\n")
+		return
+	}
+
+	// Convert string UUIDs to uuid.UUID
+	patientUUID, err := uuid.Parse(req.PatientID)
+	if err != nil {
+		fmt.Printf("[BookAppointment] UUID parse error for patient_id: %v\n", err.Error())
+		utils.Fail(c, 400, fmt.Sprintf("invalid patient ID: %v", err.Error()))
+		fmt.Println("========== BookAppointment END (UUID Parse Error) ==========\n")
+		return
+	}
+
+	fmt.Printf("[BookAppointment] Parsed patient UUID: %s\n", patientUUID.String())
+
+	// Look up patient by user_id (req.PatientID is actually the user_id from frontend)
+	patient, err := h.patientRepo.GetByUserID(patientUUID)
+	if err != nil {
+		fmt.Printf("[BookAppointment] ERROR: Patient lookup failed for UUID %s - Error: %v\n", patientUUID.String(), err.Error())
+		utils.Fail(c, 400, "patient not found - please complete your patient profile")
+		fmt.Println("========== BookAppointment END (Patient Not Found) ==========\n")
+		return
+	}
+
+	fmt.Printf("[BookAppointment] Patient found: ID=%s\n", patient.ID)
+
+	doctorID, err := uuid.Parse(req.DoctorID)
+	if err != nil {
+		utils.Fail(c, 400, fmt.Sprintf("invalid doctor ID: %v", err.Error()))
+		return
+	}
+
+	fmt.Printf("[BookAppointment] Successfully parsed - PatientID=%s, DoctorID=%s, Date=%s, Time=%s\n",
+		patient.ID, doctorID, req.AppointmentDate, req.AppointmentTime)
+
+	// Validate date format (YYYY-MM-DD)
+	if len(req.AppointmentDate) != 10 {
+		fmt.Printf("[BookAppointment] Invalid date format: '%s' (length: %d)\n", req.AppointmentDate, len(req.AppointmentDate))
+		utils.Fail(c, 400, "appointment_date must be in YYYY-MM-DD format (e.g., 2026-03-30)")
+		return
+	}
+
+	// Validate time format (HH:MM or HH:MM:SS)
+	if len(req.AppointmentTime) < 5 || len(req.AppointmentTime) > 8 {
+		fmt.Printf("[BookAppointment] Invalid time format: '%s' (length: %d)\n", req.AppointmentTime, len(req.AppointmentTime))
+		utils.Fail(c, 400, "appointment_time must be in HH:MM format (e.g., 14:30)")
 		return
 	}
 
 	appointment := &model.Appointment{
-		PatientID:       req.PatientID,
-		DoctorID:        req.DoctorID,
+		PatientID:       patient.ID,
+		DoctorID:        doctorID,
 		AppointmentDate: req.AppointmentDate,
 		AppointmentTime: req.AppointmentTime,
 		Reason:          req.Reason,
 		Notes:           req.Notes,
 	}
 
-	err := h.appointmentService.BookAppointment(appointment)
+	fmt.Printf("[BookAppointment] About to create appointment: %+v\n", appointment)
+
+	err = h.appointmentService.BookAppointment(appointment)
 	if err != nil {
+		fmt.Printf("[BookAppointment] Error creating appointment: %v\n", err.Error())
 		utils.Fail(c, 400, err.Error())
 		return
 	}
+
+	fmt.Printf("[BookAppointment] Appointment created successfully with ID: %s\n", appointment.ID)
+	fmt.Println("========== BookAppointment END (Success) ==========\n")
 
 	utils.OK(c, appointment)
 }
 
 // GetAllAppointments retrieves appointments based on user role with pagination
 // GET /api/v1/appointments
-// - Patient: returns own appointments
-// - Doctor: returns own appointments (as provider)
-// - Admin/Nurse: returns all appointments
+// - Returns all appointments for any authenticated user
 func (h *AppointmentHandler) GetAllAppointments(c *gin.Context) {
 	page := 1
 	limit := 10
@@ -96,57 +162,8 @@ func (h *AppointmentHandler) GetAllAppointments(c *gin.Context) {
 		}
 	}
 
-	// Get user context from auth middleware
-	userID, exists := c.Get("userID")
-	if !exists {
-		utils.Fail(c, 401, "unauthorized")
-		return
-	}
-
-	role, exists := c.Get("role")
-	if !exists {
-		utils.Fail(c, 401, "unauthorized")
-		return
-	}
-
-	userIDUUID := userID.(uuid.UUID)
-	roleStr := role.(string)
-
-	var appointments []model.Appointment
-	var total int64
-	var err error
-
-	// Filter appointments based on user role
-	switch roleStr {
-	case "patient":
-		// Patient views only their own appointments
-		patient, err := h.patientRepo.GetByUserID(userIDUUID)
-		if err != nil {
-			utils.Fail(c, 404, "patient record not found")
-			return
-		}
-
-		appointments, total, err = h.appointmentService.GetPatientAppointments(patient.ID, page, limit)
-
-	case "doctor":
-		// Doctor views their own appointments
-		doctor, err := h.doctorRepo.GetByUserID(userIDUUID)
-		if err != nil {
-			utils.Fail(c, 404, "doctor record not found")
-			return
-		}
-
-		appointments, total, err = h.appointmentService.GetDoctorAppointments(doctor.ID, page, limit)
-
-	case "admin", "nurse":
-		// Admin and nurses can see all appointments
-		appointments, total, err = h.appointmentService.ListAppointments(page, limit)
-
-	default:
-		utils.Fail(c, 403, "insufficient permissions")
-		return
-	}
-
+	// For now, just get all appointments - no role filtering
+	appointments, total, err := h.appointmentService.ListAppointments(page, limit)
 	if err != nil {
 		utils.Fail(c, 500, err.Error())
 		return
@@ -274,8 +291,8 @@ func (h *AppointmentHandler) GetAppointmentVitals(c *gin.Context) {
 		// Fallback: vitals need to be queried through the database
 		// In this case, we'll return vitals recorded around the appointment time
 		utils.OK(c, gin.H{
-			"appointment_id": appointment.ID,
-			"patient_id":     appointment.PatientID,
+			"appointment_id":   appointment.ID,
+			"patient_id":       appointment.PatientID,
 			"appointment_date": appointment.AppointmentDate,
 			"appointment_time": appointment.AppointmentTime,
 			"vitals":           []model.Vitals{},
@@ -309,5 +326,69 @@ func (h *AppointmentHandler) GetAppointmentVitals(c *gin.Context) {
 		"appointment_date": appointment.AppointmentDate,
 		"appointment_time": appointment.AppointmentTime,
 		"vitals":           patientVitals,
+	})
+}
+
+// GetTodayAppointments retrieves all appointments for today (for receptionist)
+// GET /api/v1/appointments/today
+func (h *AppointmentHandler) GetTodayAppointments(c *gin.Context) {
+	page := 1
+	limit := 100
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	appointments, total, err := h.appointmentService.GetTodayAppointments(page, limit)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"appointments": appointments,
+		"total":        total,
+		"page":         page,
+		"limit":        limit,
+	})
+}
+
+// GetNext7DaysAppointments retrieves all appointments for next 7 days (for nurse)
+// GET /api/v1/appointments/next-7-days
+func (h *AppointmentHandler) GetNext7DaysAppointments(c *gin.Context) {
+	page := 1
+	limit := 100
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	appointments, total, err := h.appointmentService.GetNext7DaysAppointments(page, limit)
+	if err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	utils.OK(c, gin.H{
+		"appointments": appointments,
+		"total":        total,
+		"page":         page,
+		"limit":        limit,
 	})
 }

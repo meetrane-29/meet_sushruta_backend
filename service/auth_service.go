@@ -20,6 +20,8 @@ type AuthResponse struct {
 	TokenType    string `json:"token_type"`
 	UserID       string `json:"user_id"`
 	Role         string `json:"role"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
 }
 
 type RegisterRequest struct {
@@ -102,6 +104,8 @@ func (s *authService) Login(email, password string) (*AuthResponse, error) {
 		TokenType:    "Bearer",
 		UserID:       user.ID.String(),
 		Role:         user.Role,
+		FirstName:    user.FirstName,
+		LastName:     user.LastName,
 	}, nil
 }
 
@@ -139,6 +143,8 @@ func (s *authService) RefreshToken(refreshToken string) (*AuthResponse, error) {
 		TokenType:    "Bearer",
 		UserID:       user.ID.String(),
 		Role:         user.Role,
+		FirstName:    user.FirstName,
+		LastName:     user.LastName,
 	}, nil
 }
 
@@ -192,9 +198,17 @@ func (s *authService) RegisterUser(req RegisterRequest) (*RegisterResponse, erro
 	}
 
 	// Validate role
-	validRoles := map[string]bool{"admin": true, "doctor": true, "nurse": true, "pharmacy": true, "lab": true, "patient": true}
+	validRoles := map[string]bool{
+		"admin":        true,
+		"doctor":       true,
+		"nurse":        true,
+		"pharmacy":     true,
+		"lab":          true,
+		"patient":      true,
+		"receptionist": true,
+	}
 	if !validRoles[req.Role] {
-		return nil, errors.New("invalid role")
+		return nil, errors.New("invalid role - must be admin, doctor, nurse, pharmacy, lab, patient, or receptionist")
 	}
 
 	// Check if email already exists

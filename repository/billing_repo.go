@@ -34,16 +34,16 @@ func (r *billingRepository) GetAll(page, limit int) ([]model.Bill, int64, error)
 	var bills []model.Bill
 	var total int64
 
-	query := config.DB.Model(&model.Bill{})
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Bill{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Preload("Patient").
 		Preload("Appointment").
 		Preload("Appointment.Doctor").
 		Offset(offset).
@@ -58,16 +58,17 @@ func (r *billingRepository) GetByPatientID(patientID uuid.UUID, page, limit int)
 	var bills []model.Bill
 	var total int64
 
-	query := config.DB.Where("patient_id = ?", patientID)
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Bill{}).Where("patient_id = ?", patientID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("patient_id = ?", patientID).
+		Preload("Patient").
 		Preload("Appointment").
 		Preload("Appointment.Doctor").
 		Offset(offset).
@@ -82,16 +83,17 @@ func (r *billingRepository) GetByStatus(status string, page, limit int) ([]model
 	var bills []model.Bill
 	var total int64
 
-	query := config.DB.Where("payment_status = ?", status)
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Bill{}).Where("payment_status = ?", status).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("payment_status = ?", status).
+		Preload("Patient").
 		Preload("Appointment").
 		Preload("Appointment.Doctor").
 		Offset(offset).
@@ -106,16 +108,17 @@ func (r *billingRepository) GetByDateRange(startDate, endDate string, page, limi
 	var bills []model.Bill
 	var total int64
 
-	query := config.DB.Where("bill_date >= ? AND bill_date <= ?", startDate, endDate)
-
-	// Get total count
-	query.Count(&total)
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Bill{}).Where("bill_date >= ? AND bill_date <= ?", startDate, endDate).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
-	// Fetch paginated results
-	err := query.Preload("Patient").
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("bill_date >= ? AND bill_date <= ?", startDate, endDate).
+		Preload("Patient").
 		Preload("Appointment").
 		Preload("Appointment.Doctor").
 		Offset(offset).

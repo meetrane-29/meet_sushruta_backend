@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -18,6 +19,9 @@ type AppointmentService interface {
 	SoftDeleteAppointment(id uuid.UUID) error
 	GetPatientAppointments(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetDoctorAppointments(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
+	GetAppointmentsFiltered(ctx context.Context, filter *AppointmentFilter) ([]*model.Appointment, int64, error)
+	GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error)
+	GetNext7DaysAppointments(page, limit int) ([]model.Appointment, int64, error)
 }
 
 type appointmentService struct {
@@ -197,7 +201,8 @@ func (s *appointmentService) GetPatientAppointments(patientID uuid.UUID, page, l
 		limit = 100
 	}
 
-	appointments, total, err := s.appointmentRepo.GetByPatientID(patientID, page, limit)
+	// Get appointments from today onwards only
+	appointments, total, err := s.appointmentRepo.GetFutureAppointmentsByPatient(patientID, page, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -223,7 +228,52 @@ func (s *appointmentService) GetDoctorAppointments(doctorID uuid.UUID, page, lim
 		limit = 100
 	}
 
-	appointments, total, err := s.appointmentRepo.GetByDoctorID(doctorID, page, limit)
+	// Get appointments for next 7 days only
+	appointments, total, err := s.appointmentRepo.GetAppointmentsForNext7Days(doctorID, page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return appointments, total, nil
+}
+
+// GetTodayAppointments returns all appointments for today (for receptionist)
+func (s *appointmentService) GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+
+	if limit < 1 {
+		limit = 10
+	}
+
+	if limit > 100 {
+		limit = 100
+	}
+
+	appointments, total, err := s.appointmentRepo.GetTodayAppointments(page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return appointments, total, nil
+}
+
+// GetNext7DaysAppointments returns all appointments for next 7 days (for nurse)
+func (s *appointmentService) GetNext7DaysAppointments(page, limit int) ([]model.Appointment, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+
+	if limit < 1 {
+		limit = 10
+	}
+
+	if limit > 100 {
+		limit = 100
+	}
+
+	appointments, total, err := s.appointmentRepo.GetAllAppointmentsForNext7Days(page, limit)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -36,6 +36,10 @@ type AppointmentRepository interface {
 	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetByDateRange(doctorID uuid.UUID, startDate, endDate string) ([]model.Appointment, error)
+	GetFutureAppointmentsByPatient(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
+	GetAppointmentsForNext7Days(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
+	GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error)
+	GetAllAppointmentsForNext7Days(page, limit int) ([]model.Appointment, int64, error)
 }
 
 // DoctorScheduleRepository defines methods for doctor schedule data access
@@ -169,5 +173,16 @@ type DischargeSummaryRepository interface {
 	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.DischargeSummary, int64, error)
 	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.DischargeSummary, int64, error)
 	Update(summary *model.DischargeSummary) error
+	SoftDelete(id uuid.UUID) error
+}
+
+// RatingRepository defines methods for rating data access
+type RatingRepository interface {
+	Create(rating *model.Rating) error
+	GetByID(id uuid.UUID) (*model.Rating, error)
+	GetAll(page, limit int) ([]model.Rating, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, page, limit int) ([]model.Rating, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, limit int) ([]model.Rating, int64, error)
+	Update(rating *model.Rating) error
 	SoftDelete(id uuid.UUID) error
 }
