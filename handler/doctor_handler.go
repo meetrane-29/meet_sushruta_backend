@@ -266,7 +266,7 @@ func (h *DoctorHandler) GetAvailableSlots(c *gin.Context) {
 // GetMe retrieves the current logged-in doctor
 // GET /api/v1/doctors/me
 func (h *DoctorHandler) GetMe(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := c.Get("userID")
 	if !exists {
 		utils.Fail(c, 401, "unauthorized")
 		return

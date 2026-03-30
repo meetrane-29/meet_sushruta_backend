@@ -162,16 +162,17 @@ func (r *appointmentRepository) GetFutureAppointmentsByPatient(patientID uuid.UU
 	return appointments, total, err
 }
 
-// GetAppointmentsForNext7Days returns appointments for next 7 days for a doctor
+// GetAppointmentsForNext7Days returns appointments for last 7 days + next 7 days for a doctor
 func (r *appointmentRepository) GetAppointmentsForNext7Days(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error) {
 	var appointments []model.Appointment
 	var total int64
 
-	today := time.Now().Format("2006-01-02")
+	// Include last 7 days + next 7 days (total 14 days range centered on today)
+	lastWeek := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
 	nextWeek := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
 
 	// Get total count with a separate query
-	if err := config.DB.Model(&model.Appointment{}).Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, today, nextWeek).Count(&total).Error; err != nil {
+	if err := config.DB.Model(&model.Appointment{}).Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, lastWeek, nextWeek).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -179,7 +180,7 @@ func (r *appointmentRepository) GetAppointmentsForNext7Days(doctorID uuid.UUID, 
 	offset := (page - 1) * limit
 
 	// Fetch paginated results with a fresh query
-	err := config.DB.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, today, nextWeek).
+	err := config.DB.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date <= ?", doctorID, lastWeek, nextWeek).
 		Preload("Patient").
 		Preload("Patient.User").
 		Preload("Doctor").

@@ -116,10 +116,14 @@ func (h *PatientHandler) GetPatient(c *gin.Context) {
 		return
 	}
 
+	// Try by patient ID first, fall back to user ID
 	patient, err := h.patientService.GetPatient(id)
 	if err != nil {
-		utils.Fail(c, 404, err.Error())
-		return
+		patient, err = h.patientService.GetPatientByUserID(id)
+		if err != nil {
+			utils.Fail(c, 404, "patient not found")
+			return
+		}
 	}
 
 	utils.OK(c, patient)

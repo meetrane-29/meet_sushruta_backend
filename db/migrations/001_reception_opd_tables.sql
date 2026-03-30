@@ -64,8 +64,9 @@ CREATE TABLE IF NOT EXISTS waiting_list_entries (
   seen_time TIMESTAMP,
   completion_time TIMESTAMP,
   estimated_wait_time INTEGER DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT,
+  created_at BIGINT,
+  updated_at BIGINT,
   deleted_at TIMESTAMP
 );
 

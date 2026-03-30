@@ -29,6 +29,9 @@ func main() {
 	}
 	defer config.CloseDatabase()
 
+	// DEBUG: Print Hardi doctor and his appointments
+	debugHardiDoctor()
+
 	// Note: Seed database disabled - use direct SQL file instead
 	// if err := config.SeedDatabase(); err != nil {
 	//	log.Fatalf("Failed to seed database: %v", err)
@@ -220,6 +223,9 @@ func main() {
 			// Doctor management routes (protected)
 			doctors := protected.Group("/doctors")
 			{
+				// Get current doctor info - must come BEFORE /:id routes
+				doctors.GET("/me", middleware.RequireRole("doctor"), doctorHandler.GetMe)
+
 				doctors.POST("", middleware.RequireRole("admin"), doctorHandler.CreateDoctor)
 				doctors.PATCH("/:id", middleware.RequireRole("admin"), doctorHandler.UpdateDoctor)
 				doctors.DELETE("/:id", middleware.RequireRole("admin"), doctorHandler.DeleteDoctor)
@@ -244,8 +250,9 @@ func main() {
 			appointments := protected.Group("/appointments")
 			{
 				appointments.GET("", appointmentHandler.GetAllAppointments)
-				appointments.POST("", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.BookAppointment)
+				appointments.POST("", middleware.RequireRole("admin", "doctor", "nurse", "patient", "receptionist"), appointmentHandler.BookAppointment)
 				appointments.GET("/today", middleware.RequireRole("admin", "receptionist"), appointmentHandler.GetTodayAppointments)
+				appointments.GET("/my/schedule", middleware.RequireRole("doctor"), appointmentHandler.GetMyAppointments)
 				appointments.GET("/next-7-days", middleware.RequireRole("admin", "nurse", "doctor"), appointmentHandler.GetNext7DaysAppointments)
 				appointments.GET("/:id", appointmentHandler.GetAppointment)
 				appointments.GET("/:id/vitals", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAppointmentVitals)
@@ -588,4 +595,48 @@ func main() {
 	if err := router.Run(fmt.Sprintf(":%s", port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+// debugHardiDoctor prints Doctor Hardi details and his appointments
+func debugHardiDoctor() {
+	var doctor model.Doctor
+	result := config.DB.Joins("JOIN users ON users.id = doctors.user_id").
+		Where("users.first_name ILIKE ? OR users.last_name ILIKE ?", "%Hardi%", "%Hardi%").
+		Preload("User").
+		First(&doctor)
+
+	if result.Error != nil {
+		log.Printf("[DEBUG] No Hardi doctor found in database: %v", result.Error)
+		return
+	}
+
+	log.Printf("\n===== HARDI DOCTOR DEBUG INFO =====")
+	log.Printf("Doctor Name: %s %s", doctor.User.FirstName, doctor.User.LastName)
+	log.Printf("Doctor ID: %s", doctor.ID)
+	log.Printf("Specialization: %s", doctor.Specialization)
+	log.Printf("====================================\n")
+
+	// Find appointments for this doctor
+	var appointments []model.Appointment
+	result = config.DB.Where("doctor_id = ?", doctor.ID).
+		Preload("Patient").
+		Preload("Patient.User").
+		Order("appointment_date ASC, appointment_time ASC").
+		Find(&appointments)
+
+	if result.Error != nil {
+		log.Printf("[DEBUG] Error finding appointments: %v", result.Error)
+		return
+	}
+
+	log.Printf("\n===== %s's APPOINTMENTS (%d total) =====", doctor.User.FirstName, len(appointments))
+	for i, apt := range appointments {
+		patientName := "Unknown"
+		if apt.Patient != nil && apt.Patient.User != nil {
+			patientName = apt.Patient.User.FirstName + " " + apt.Patient.User.LastName
+		}
+		log.Printf("[%d] %s | %s %s | Status: %s | ID: %s",
+			i+1, apt.AppointmentDate, apt.AppointmentTime, patientName, apt.Status, apt.ID)
+	}
+	log.Printf("==========================================\n")
 }

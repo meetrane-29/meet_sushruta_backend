@@ -392,3 +392,75 @@ func (h *AppointmentHandler) GetNext7DaysAppointments(c *gin.Context) {
 		"limit":        limit,
 	})
 }
+
+// GetMyAppointments retrieves appointments for the logged-in doctor (last 7 days to next 7 days)
+// GET /api/v1/appointments/my/schedule
+func (h *AppointmentHandler) GetMyAppointments(c *gin.Context) {
+	// Get doctor ID from context (set by middleware)
+	doctorIDInterface, exists := c.Get("userID")
+	if !exists {
+		fmt.Printf("[GetMyAppointments] ERROR: userID not found in context\n")
+		utils.Fail(c, 401, "user id not found in context")
+		return
+	}
+
+	doctorIDStr := fmt.Sprintf("%v", doctorIDInterface)
+	fmt.Printf("[GetMyAppointments] User ID from context: %s\n", doctorIDStr)
+
+	doctorID, err := uuid.Parse(doctorIDStr)
+	if err != nil {
+		fmt.Printf("[GetMyAppointments] ERROR: Failed to parse UUID: %v\n", err)
+		utils.Fail(c, 400, "invalid doctor id")
+		return
+	}
+
+	// Get doctor by user ID to verify it's a doctor
+	doctor, err := h.doctorRepo.GetByUserID(doctorID)
+	if err != nil {
+		fmt.Printf("[GetMyAppointments] ERROR: Doctor not found for userID %s: %v\n", doctorIDStr, err)
+		utils.Fail(c, 404, "doctor not found")
+		return
+	}
+
+	if doctor == nil {
+		fmt.Printf("[GetMyAppointments] ERROR: Doctor is nil for userID %s\n", doctorIDStr)
+		utils.Fail(c, 404, "doctor not found")
+		return
+	}
+
+	fmt.Printf("[GetMyAppointments] Doctor found: ID=%s, Name=%s, Specialization=%s\n", doctor.ID, doctor.User.FirstName, doctor.Specialization)
+
+	page := 1
+	limit := 100
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	fmt.Printf("[GetMyAppointments] Fetching appointments for doctor %s with page=%d, limit=%d\n", doctor.ID, page, limit)
+
+	// Get appointments for doctor - includes last 7 days + next 7 days
+	appointments, total, err := h.appointmentService.GetDoctorAppointments(doctor.ID, page, limit)
+	if err != nil {
+		fmt.Printf("[GetMyAppointments] ERROR: Failed to get appointments: %v\n", err)
+		utils.Fail(c, 500, err.Error())
+		return
+	}
+
+	fmt.Printf("[GetMyAppointments] Found %d appointments out of %d total\n", len(appointments), total)
+
+	utils.OK(c, gin.H{
+		"appointments": appointments,
+		"total":        total,
+		"page":         page,
+		"limit":        limit,
+	})
+}

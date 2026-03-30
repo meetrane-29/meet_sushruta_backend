@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"meet_sushruta/model"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -52,11 +53,14 @@ func (r *waitingListRepository) GetWaitingListByAppointmentID(appointmentID uuid
 // GetWaitingListByDoctorIDToday retrieves today's waiting list for a doctor
 func (r *waitingListRepository) GetWaitingListByDoctorIDToday(doctorID uuid.UUID) ([]model.WaitingListEntry, error) {
 	var entries []model.WaitingListEntry
-	today := getCurrentDateString()
 
-	if err := r.db.Joins("JOIN appointments ON waiting_list_entries.appointment_id = appointments.id").
-		Where("appointments.doctor_id = ? AND DATE(appointments.appointment_date) = ?", doctorID, today).
-		Order("waiting_list_entries.token_number ASC").
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).UnixMilli()
+
+	if err := r.db.Where("doctor_id = ? AND created_at BETWEEN ? AND ?", doctorID, startOfDay, endOfDay).
+		Preload("Patient.User").
+		Order("token_number ASC").
 		Find(&entries).Error; err != nil {
 		return nil, fmt.Errorf("error fetching waiting list: %w", err)
 	}
@@ -85,11 +89,13 @@ func (r *waitingListRepository) UpdateWaitingListStatus(id uuid.UUID, status mod
 // GetNextTokenNumber gets the next token number for a doctor's queue
 func (r *waitingListRepository) GetNextTokenNumber(doctorID uuid.UUID) (int64, error) {
 	var maxToken int64
-	today := getCurrentDateString()
+
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).UnixMilli()
 
 	if err := r.db.Model(&model.WaitingListEntry{}).
-		Joins("JOIN appointments ON waiting_list_entries.appointment_id = appointments.id").
-		Where("appointments.doctor_id = ? AND DATE(appointments.appointment_date) = ?", doctorID, today).
+		Where("doctor_id = ? AND created_at BETWEEN ? AND ?", doctorID, startOfDay, endOfDay).
 		Select("COALESCE(MAX(token_number), 0)").
 		Scan(&maxToken).Error; err != nil {
 		return 0, fmt.Errorf("error getting next token number: %w", err)
@@ -119,8 +125,3 @@ func (r *waitingListRepository) GetActiveWaitingListByPatientID(patientID uuid.U
 	return &entry, nil
 }
 
-// Helper function to get current date string in format YYYY-MM-DD
-func getCurrentDateString() string {
-	// This will be implemented based on your timezone requirements
-	return ""
-}
