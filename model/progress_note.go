@@ -13,7 +13,7 @@ type ProgressNote struct {
 	Patient      *Patient         `gorm:"foreignKey:PatientID;references:ID" json:"patient,omitempty"`
 	DoctorID     uuid.UUID        `gorm:"type:uuid;not null;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"doctor_id"`
 	Doctor       *Doctor          `gorm:"foreignKey:DoctorID;references:ID" json:"doctor,omitempty"`
-	RecordedDate string           `gorm:"not null;index" json:"recorded_date"` // YYYY-MM-DD
+	RecordedDate *string          `gorm:"index" json:"recorded_date"` // YYYY-MM-DD (nullable for OPD)
 
 	// SOAP Format
 	Subjective string `gorm:"type:text" json:"subjective"` // Patient's complaints and symptoms

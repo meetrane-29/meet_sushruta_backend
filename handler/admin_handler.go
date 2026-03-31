@@ -73,6 +73,12 @@ func (h *AdminHandler) RegisterDoctor(c *gin.Context) {
 		return
 	}
 
+	// Validate phone number
+	if !utils.ValidatePhone(req.Phone) {
+		utils.Fail(c, 400, "phone number must contain exactly 10 digits")
+		return
+	}
+
 	// Convert to service request type
 	serviceReq := service.RegisterDoctorRequest{
 		FirstName:            req.FirstName,

@@ -124,7 +124,7 @@ func main() {
 	adminHandler := handler.NewAdminHandler(adminService)
 	vitalsHandler := handler.NewVitalsHandler(vitalsService)
 	bedHandler := handler.NewBedHandler(bedService)
-	admissionHandler := handler.NewAdmissionHandler(admissionRepo)
+	admissionHandler := handler.NewAdmissionHandler(admissionRepo, doctorService)
 	specializationHandler := handler.NewSpecializationHandler(specializationService)
 	hospitalHandler := handler.NewHospitalHandler(hospitalService)
 
@@ -185,9 +185,9 @@ func main() {
 				inventory := admin.Group("/inventory")
 				{
 					// Beds
-					inventory.GET("/beds/stats", middleware.RequireRole("admin"), adminHandler.GetBedStats)
-					inventory.GET("/beds", middleware.RequireRole("admin"), adminHandler.GetAllBeds)
-					inventory.GET("/beds/type/:bedType", middleware.RequireRole("admin"), adminHandler.GetPatientsByBedType)
+					inventory.GET("/beds/stats", middleware.RequireRole("admin", "receptionist"), adminHandler.GetBedStats)
+					inventory.GET("/beds", middleware.RequireRole("admin", "receptionist"), adminHandler.GetAllBeds)
+					inventory.GET("/beds/type/:bedType", middleware.RequireRole("admin", "receptionist"), adminHandler.GetPatientsByBedType)
 
 					// Medical Equipment
 					inventory.GET("/equipment/stats", middleware.RequireRole("admin"), adminHandler.GetMedicalEquipmentStats)
@@ -227,6 +227,8 @@ func main() {
 			{
 				// Get current doctor info - must come BEFORE /:id routes
 				doctors.GET("/me", middleware.RequireRole("doctor"), doctorHandler.GetMe)
+				// Active doctors today - visible to admin and receptionist
+				doctors.GET("/active-today", middleware.RequireRole("admin", "receptionist"), doctorHandler.GetActiveDoctorsToday)
 
 				doctors.POST("", middleware.RequireRole("admin"), doctorHandler.CreateDoctor)
 				doctors.PATCH("/:id", middleware.RequireRole("admin"), doctorHandler.UpdateDoctor)
@@ -405,9 +407,9 @@ func main() {
 				beds.GET("/ward/:ward", bedHandler.GetBedsByWard)
 				beds.GET("/ward/:ward/stats", bedHandler.GetWardStats)
 				beds.GET("/status/:status", bedHandler.GetBedsByStatus)
-				beds.POST("/admit", middleware.RequireRole("admin", "nurse"), bedHandler.AdmitPatient)
-				beds.POST("/discharge", middleware.RequireRole("admin", "nurse"), bedHandler.DischargePatient)
-				beds.PATCH("/:id/status", middleware.RequireRole("admin", "nurse"), bedHandler.UpdateBedStatus)
+				beds.POST("/admit", middleware.RequireRole("admin", "nurse", "receptionist"), bedHandler.AdmitPatient)
+				beds.POST("/discharge", middleware.RequireRole("admin", "nurse", "receptionist"), bedHandler.DischargePatient)
+				beds.PATCH("/:id/status", middleware.RequireRole("admin", "nurse", "receptionist"), bedHandler.UpdateBedStatus)
 			}
 
 			// Admission records routes (complete CRUD)

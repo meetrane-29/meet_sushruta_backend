@@ -14,7 +14,8 @@ import (
 )
 
 type ItemInput struct {
-	MedicineID   uuid.UUID `json:"medicine_id" binding:"required"`
+	MedicineID   uuid.UUID `json:"medicine_id"`
+	MedicineName string    `json:"medicine_name"`
 	Dosage       string    `json:"dosage" binding:"required"`
 	Frequency    string    `json:"frequency" binding:"required"`
 	Duration     string    `json:"duration" binding:"required"`
@@ -95,16 +96,34 @@ func (s *prescriptionService) CreatePrescription(appointmentID, doctorID uuid.UU
 
 		// Create prescription items
 		for _, item := range items {
-			// Validate medicine exists
+			// Validate medicine exists - lookup by ID or name
 			medicine := &model.Medicine{}
-			if err := tx.Where("id = ?", item.MedicineID).First(medicine).Error; err != nil {
-				return fmt.Errorf("medicine not found for item")
+			var lookupErr error
+
+			// Try lookup by medicine_id first if provided
+			if item.MedicineID != uuid.Nil {
+				lookupErr = tx.Where("id = ?", item.MedicineID).First(medicine).Error
+			} else if item.MedicineName != "" {
+				// Lookup by medicine name
+				lookupErr = tx.Where("LOWER(name) = LOWER(?)", item.MedicineName).First(medicine).Error
+			} else {
+				return fmt.Errorf("either medicine_id or medicine_name is required for item")
+			}
+
+			if lookupErr != nil {
+				medIdentifier := ""
+				if item.MedicineID != uuid.Nil {
+					medIdentifier = item.MedicineID.String()
+				} else {
+					medIdentifier = item.MedicineName
+				}
+				return fmt.Errorf("medicine not found: %s", medIdentifier)
 			}
 
 			prescriptionItem := &model.PrescriptionItem{
 				ID:             uuid.New(),
 				PrescriptionID: prescription.ID,
-				MedicineID:     item.MedicineID,
+				MedicineID:     medicine.ID,
 				Dosage:         item.Dosage,
 				Frequency:      item.Frequency,
 				Duration:       item.Duration,

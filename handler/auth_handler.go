@@ -94,8 +94,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if len(req.Phone) == 0 || len(req.Phone) < 10 {
-		utils.Fail(c, 400, "phone must be at least 10 characters")
+	if !utils.ValidatePhone(strings.TrimSpace(req.Phone)) {
+		utils.Fail(c, 400, "phone number must contain exactly 10 digits")
 		return
 	}
 
@@ -182,8 +182,8 @@ func (h *AuthHandler) AdminRegisterUser(c *gin.Context) {
 		return
 	}
 
-	if len(req.Phone) == 0 || len(req.Phone) < 10 {
-		utils.Fail(c, 400, "phone must be at least 10 characters")
+	if !utils.ValidatePhone(strings.TrimSpace(req.Phone)) {
+		utils.Fail(c, 400, "phone number must contain exactly 10 digits")
 		return
 	}
 

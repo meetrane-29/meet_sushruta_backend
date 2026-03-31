@@ -70,6 +70,10 @@ func AutoMigrate() error {
 	preFixStatements := []string{
 		`ALTER TABLE uhids ADD COLUMN IF NOT EXISTS uh_id varchar(20) DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login bigint`,
+		// Fix progress_notes constraints for OPD SOAP notes support
+		`ALTER TABLE IF EXISTS progress_notes DROP CONSTRAINT IF EXISTS fk_progress_notes_admission`,
+		`ALTER TABLE IF EXISTS progress_notes ALTER COLUMN admission_id DROP NOT NULL`,
+		`ALTER TABLE IF EXISTS progress_notes ALTER COLUMN recorded_date DROP NOT NULL`,
 	}
 	for _, stmt := range preFixStatements {
 		if err := DB.Exec(stmt).Error; err != nil {

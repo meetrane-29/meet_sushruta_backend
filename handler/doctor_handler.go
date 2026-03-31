@@ -334,8 +334,8 @@ func (h *DoctorHandler) GetIPDPatients(c *gin.Context) {
 type CreateProgressNoteRequest struct {
 	AdmissionID    *uuid.UUID `json:"admission_id"` // optional — nil for OPD consultations
 	PatientID      uuid.UUID  `json:"patient_id" binding:"required"`
-	DoctorID       uuid.UUID  `json:"doctor_id" binding:"required"`
-	RecordedDate   string     `json:"recorded_date" binding:"required"` // YYYY-MM-DD
+	UserID         uuid.UUID  `json:"user_id" binding:"required"` // doctor's user_id (will lookup actual doctor_id)
+	RecordedDate   *string    `json:"recorded_date"`              // optional — defaults to today
 	Subjective     string     `json:"subjective"`
 	Objective      string     `json:"objective"`
 	Assessment     string     `json:"assessment"`
@@ -353,11 +353,27 @@ func (h *DoctorHandler) CreateProgressNote(c *gin.Context) {
 		return
 	}
 
+	// Look up doctor record using user_id to get the actual doctor_id
+	doctor, err := h.doctorService.GetDoctorByUserID(req.UserID)
+	if err != nil {
+		utils.Fail(c, 400, "doctor not found: ensure you are logged in as a doctor")
+		return
+	}
+
+	// Set default recorded_date to today if not provided
+	var recordedDate *string
+	if req.RecordedDate != nil {
+		recordedDate = req.RecordedDate
+	} else {
+		today := time.Now().Format("2006-01-02")
+		recordedDate = &today
+	}
+
 	note := &model.ProgressNote{
 		AdmissionID:    req.AdmissionID,
 		PatientID:      req.PatientID,
-		DoctorID:       req.DoctorID,
-		RecordedDate:   req.RecordedDate,
+		DoctorID:       doctor.ID, // Use the actual doctor_id from doctors table
+		RecordedDate:   recordedDate,
 		Subjective:     req.Subjective,
 		Objective:      req.Objective,
 		Assessment:     req.Assessment,
