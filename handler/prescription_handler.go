@@ -12,11 +12,19 @@ import (
 
 type PrescriptionHandler struct {
 	prescriptionService service.PrescriptionService
+	pharmacyService     service.PharmacyService
+	labService          service.LabService
 }
 
-func NewPrescriptionHandler(prescriptionService service.PrescriptionService) *PrescriptionHandler {
+func NewPrescriptionHandler(
+	prescriptionService service.PrescriptionService,
+	pharmacyService service.PharmacyService,
+	labService service.LabService,
+) *PrescriptionHandler {
 	return &PrescriptionHandler{
 		prescriptionService: prescriptionService,
+		pharmacyService:     pharmacyService,
+		labService:          labService,
 	}
 }
 
@@ -29,6 +37,22 @@ type CreatePrescriptionRequest struct {
 
 type UpdatePrescriptionStatusRequest struct {
 	Status string `json:"status" binding:"required"`
+}
+
+type SendToPharmacyRequest struct {
+	PrescriptionID uuid.UUID `json:"prescription_id" binding:"required"`
+	Priority       string    `json:"priority"`
+	Notes          string    `json:"notes"`
+}
+
+type SendToLabRequest struct {
+	PatientID     uuid.UUID `json:"patient_id" binding:"required"`
+	DoctorID      uuid.UUID `json:"doctor_id" binding:"required"`
+	TestType      string    `json:"test_type" binding:"required"`
+	TestName      string    `json:"test_name" binding:"required"`
+	ScheduledDate *string   `json:"scheduled_date"`
+	Priority      string    `json:"priority"`
+	Notes         string    `json:"notes"`
 }
 
 // CreatePrescription creates a new prescription with items
@@ -191,4 +215,83 @@ func (h *PrescriptionHandler) GetPrescriptionMedicines(c *gin.Context) {
 		"medicines":       medicines,
 		"total":           len(medicines),
 	})
+}
+
+// SendToPharma sends a prescription to pharmacy
+// POST /api/v1/prescriptions/:id/send-to-pharmacy
+func (h *PrescriptionHandler) SendToPharmacy(c *gin.Context) {
+	prescriptionIDStr := c.Param("id")
+	prescriptionID, err := uuid.Parse(prescriptionIDStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid prescription id")
+		return
+	}
+
+	var req SendToPharmacyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request")
+		return
+	}
+
+	// Get prescription details
+	prescription, err := h.prescriptionService.GetPrescription(prescriptionID)
+	if err != nil {
+		utils.Fail(c, 404, "prescription not found")
+		return
+	}
+
+	priority := req.Priority
+	if priority == "" {
+		priority = "normal"
+	}
+
+	// Create pharmacy request
+	pharmacyReq := &service.CreatePharmacyRequestInput{
+		PatientID:      prescription.PatientID,
+		DoctorID:       prescription.DoctorID,
+		PrescriptionID: prescriptionID,
+		Priority:       priority,
+		Notes:          req.Notes,
+	}
+
+	result, err := h.pharmacyService.SendPrescriptionToPharmacy(pharmacyReq)
+	if err != nil {
+		utils.Fail(c, 400, err.Error())
+		return
+	}
+
+	utils.OK(c, result)
+}
+
+// SendToLab sends a lab request to lab
+// POST /api/v1/prescriptions/:id/send-to-lab
+func (h *PrescriptionHandler) SendToLab(c *gin.Context) {
+	var req SendToLabRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request")
+		return
+	}
+
+	priority := req.Priority
+	if priority == "" {
+		priority = "normal"
+	}
+
+	// Create lab order
+	labOrderInput := &service.LabOrderInput{
+		PatientID:     req.PatientID,
+		DoctorID:      req.DoctorID,
+		TestType:      req.TestType,
+		TestName:      req.TestName,
+		ScheduledDate: req.ScheduledDate,
+		Priority:      priority,
+	}
+
+	labRequest, err := h.labService.CreateOrder(labOrderInput)
+	if err != nil {
+		utils.Fail(c, 400, err.Error())
+		return
+	}
+
+	utils.OK(c, labRequest)
 }

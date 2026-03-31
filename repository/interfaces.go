@@ -39,6 +39,7 @@ type AppointmentRepository interface {
 	GetFutureAppointmentsByPatient(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetAppointmentsForNext7Days(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error)
+	GetTodayAppointmentsByDoctor(page, limit int, doctorID string) ([]model.Appointment, int64, error)
 	GetAllAppointmentsForNext7Days(page, limit int) ([]model.Appointment, int64, error)
 }
 

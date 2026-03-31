@@ -20,7 +20,7 @@ type AppointmentService interface {
 	GetPatientAppointments(patientID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetDoctorAppointments(doctorID uuid.UUID, page, limit int) ([]model.Appointment, int64, error)
 	GetAppointmentsFiltered(ctx context.Context, filter *AppointmentFilter) ([]*model.Appointment, int64, error)
-	GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error)
+	GetTodayAppointments(page, limit int, doctorID ...string) ([]model.Appointment, int64, error)
 	GetNext7DaysAppointments(page, limit int) ([]model.Appointment, int64, error)
 }
 
@@ -238,7 +238,7 @@ func (s *appointmentService) GetDoctorAppointments(doctorID uuid.UUID, page, lim
 }
 
 // GetTodayAppointments returns all appointments for today (for receptionist)
-func (s *appointmentService) GetTodayAppointments(page, limit int) ([]model.Appointment, int64, error) {
+func (s *appointmentService) GetTodayAppointments(page, limit int, doctorID ...string) ([]model.Appointment, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -251,6 +251,20 @@ func (s *appointmentService) GetTodayAppointments(page, limit int) ([]model.Appo
 		limit = 100
 	}
 
+	// If doctorID is provided, filter by doctor
+	if len(doctorID) > 0 && doctorID[0] != "" {
+		fmt.Printf("[GetTodayAppointments] Filtering by doctor_id: %s\n", doctorID[0])
+		appointments, total, err := s.appointmentRepo.GetTodayAppointmentsByDoctor(page, limit, doctorID[0])
+		if err != nil {
+			fmt.Printf("[GetTodayAppointments] Error filtering: %v\n", err)
+			return nil, 0, err
+		}
+		fmt.Printf("[GetTodayAppointments] Found %d appointments for doctor\n", len(appointments))
+		return appointments, total, nil
+	}
+
+	// Otherwise return all appointments for today
+	fmt.Println("[GetTodayAppointments] No doctor_id provided, returning all appointments")
 	appointments, total, err := s.appointmentRepo.GetTodayAppointments(page, limit)
 	if err != nil {
 		return nil, 0, err

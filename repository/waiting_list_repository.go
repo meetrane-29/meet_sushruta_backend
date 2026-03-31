@@ -50,7 +50,7 @@ func (r *waitingListRepository) GetWaitingListByAppointmentID(appointmentID uuid
 	return &entry, nil
 }
 
-// GetWaitingListByDoctorIDToday retrieves today's waiting list for a doctor
+// GetWaitingListByDoctorIDToday retrieves today's active waiting list for a doctor
 func (r *waitingListRepository) GetWaitingListByDoctorIDToday(doctorID uuid.UUID) ([]model.WaitingListEntry, error) {
 	var entries []model.WaitingListEntry
 
@@ -58,7 +58,13 @@ func (r *waitingListRepository) GetWaitingListByDoctorIDToday(doctorID uuid.UUID
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
 	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).UnixMilli()
 
-	if err := r.db.Where("doctor_id = ? AND created_at BETWEEN ? AND ?", doctorID, startOfDay, endOfDay).
+	// Show active entries (any date) + today's completed/cancelled entries
+	if err := r.db.Where(
+		"doctor_id = ? AND (status IN ? OR (created_at BETWEEN ? AND ?))",
+		doctorID,
+		[]string{"waiting", "called", "seen"},
+		startOfDay, endOfDay,
+	).
 		Preload("Patient.User").
 		Order("token_number ASC").
 		Find(&entries).Error; err != nil {
@@ -86,7 +92,7 @@ func (r *waitingListRepository) UpdateWaitingListStatus(id uuid.UUID, status mod
 	return nil
 }
 
-// GetNextTokenNumber gets the next token number for a doctor's queue
+// GetNextTokenNumber gets the next token number for a doctor's queue today
 func (r *waitingListRepository) GetNextTokenNumber(doctorID uuid.UUID) (int64, error) {
 	var maxToken int64
 
@@ -94,8 +100,13 @@ func (r *waitingListRepository) GetNextTokenNumber(doctorID uuid.UUID) (int64, e
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
 	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).UnixMilli()
 
+	// Count all entries for this doctor — today's or active ones
 	if err := r.db.Model(&model.WaitingListEntry{}).
-		Where("doctor_id = ? AND created_at BETWEEN ? AND ?", doctorID, startOfDay, endOfDay).
+		Where("doctor_id = ? AND (status IN ? OR (created_at BETWEEN ? AND ?))",
+			doctorID,
+			[]string{"waiting", "called", "seen"},
+			startOfDay, endOfDay,
+		).
 		Select("COALESCE(MAX(token_number), 0)").
 		Scan(&maxToken).Error; err != nil {
 		return 0, fmt.Errorf("error getting next token number: %w", err)

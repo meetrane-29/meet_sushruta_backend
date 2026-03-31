@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS uhids (
   uhid VARCHAR(15) UNIQUE NOT NULL,
   hospital_code VARCHAR(5) NOT NULL DEFAULT 'MS',
   sequence_number INTEGER NOT NULL,
-  issued_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  issued_date BIGINT,
   is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at BIGINT,
+  updated_at BIGINT,
   deleted_at TIMESTAMP
 );
 

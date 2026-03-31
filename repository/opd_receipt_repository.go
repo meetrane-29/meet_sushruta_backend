@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"meet_sushruta/model"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -100,15 +101,15 @@ func (r *opdReceiptRepository) UpdateOPDReceipt(receipt *model.OPDReceipt) error
 // GetNextReceiptNumber generates next receipt number in format RCP-YYYY-XXXXX
 func (r *opdReceiptRepository) GetNextReceiptNumber() (string, error) {
 	var maxNumber int64
-	currentYear := 2026 // You can implement dynamic year fetching
+	currentYear := time.Now().Year()
+	yearPrefix := fmt.Sprintf("%d-", currentYear)
 
 	if err := r.db.Model(&model.OPDReceipt{}).
-		Where("YEAR(receipt_date) = ?", currentYear).
-		Select("COUNT(*) + 1").
-		Scan(&maxNumber).Error; err != nil {
+		Where("receipt_number LIKE ?", "RCP-"+yearPrefix+"%").
+		Count(&maxNumber).Error; err != nil {
 		return "", fmt.Errorf("error generating receipt number: %w", err)
 	}
 
-	receiptNumber := fmt.Sprintf("RCP-%d-%05d", currentYear, maxNumber)
+	receiptNumber := fmt.Sprintf("RCP-%d-%05d", currentYear, maxNumber+1)
 	return receiptNumber, nil
 }

@@ -67,6 +67,7 @@ func (r *nurseRepository) GetAll(page, limit int, search string) ([]model.Nurse,
 
 func (r *nurseRepository) Update(nurse *model.Nurse) error {
 	return config.DB.Model(nurse).
+		Select("department", "shift", "certification_url", "joining_date", "salary", "attendance_percentage", "leave_balance").
 		Updates(nurse).Error
 }
 

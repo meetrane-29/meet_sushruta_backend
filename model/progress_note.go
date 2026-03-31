@@ -7,7 +7,7 @@ import (
 
 type ProgressNote struct {
 	ID           uuid.UUID        `gorm:"type:uuid;primaryKey" json:"id"`
-	AdmissionID  uuid.UUID        `gorm:"type:uuid;not null;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"admission_id"`
+	AdmissionID  *uuid.UUID       `gorm:"type:uuid;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"admission_id"`
 	Admission    *AdmissionRecord `gorm:"foreignKey:AdmissionID;references:ID" json:"admission,omitempty"`
 	PatientID    uuid.UUID        `gorm:"type:uuid;not null;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"patient_id"`
 	Patient      *Patient         `gorm:"foreignKey:PatientID;references:ID" json:"patient,omitempty"`

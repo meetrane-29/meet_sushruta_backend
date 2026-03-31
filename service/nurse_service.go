@@ -77,6 +77,22 @@ func (s *nurseService) UpdateNurse(id uuid.UUID, updates map[string]interface{})
 	if certURL, ok := updates["certification_url"].(string); ok {
 		nurse.CertificationURL = certURL
 	}
+	if jd, ok := updates["joining_date"].(int64); ok {
+		nurse.JoiningDate = jd
+	} else if jd, ok := updates["joining_date"].(float64); ok {
+		nurse.JoiningDate = int64(jd)
+	}
+	if salary, ok := updates["salary"].(float64); ok {
+		nurse.Salary = salary
+	}
+	if attendance, ok := updates["attendance_percentage"].(float64); ok {
+		nurse.AttendancePercentage = attendance
+	}
+	if lb, ok := updates["leave_balance"].(int); ok {
+		nurse.LeaveBalance = lb
+	} else if lb, ok := updates["leave_balance"].(float64); ok {
+		nurse.LeaveBalance = int(lb)
+	}
 
 	err = s.nurseRepo.Update(nurse)
 	if err != nil {

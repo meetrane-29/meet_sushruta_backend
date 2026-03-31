@@ -331,18 +331,18 @@ func (h *DoctorHandler) GetIPDPatients(c *gin.Context) {
 // CreateProgressNote creates a progress note for admitted patient
 // POST /api/v1/progress-notes
 type CreateProgressNoteRequest struct {
-	AdmissionID    uuid.UUID `json:"admission_id" binding:"required"`
-	PatientID      uuid.UUID `json:"patient_id" binding:"required"`
-	DoctorID       uuid.UUID `json:"doctor_id" binding:"required"`
-	RecordedDate   string    `json:"recorded_date" binding:"required"` // YYYY-MM-DD
-	Subjective     string    `json:"subjective"`
-	Objective      string    `json:"objective"`
-	Assessment     string    `json:"assessment"`
-	Plan           string    `json:"plan"`
-	Vitals         string    `json:"vitals"`
-	Medications    string    `json:"medications"`
-	NextReviewDate *string   `json:"next_review_date"`
-	Notes          string    `json:"notes"`
+	AdmissionID    *uuid.UUID `json:"admission_id"` // optional — nil for OPD consultations
+	PatientID      uuid.UUID  `json:"patient_id" binding:"required"`
+	DoctorID       uuid.UUID  `json:"doctor_id" binding:"required"`
+	RecordedDate   string     `json:"recorded_date" binding:"required"` // YYYY-MM-DD
+	Subjective     string     `json:"subjective"`
+	Objective      string     `json:"objective"`
+	Assessment     string     `json:"assessment"`
+	Plan           string     `json:"plan"`
+	Vitals         string     `json:"vitals"`
+	Medications    string     `json:"medications"`
+	NextReviewDate *string    `json:"next_review_date"`
+	Notes          string     `json:"notes"`
 }
 
 func (h *DoctorHandler) CreateProgressNote(c *gin.Context) {

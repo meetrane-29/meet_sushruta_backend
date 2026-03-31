@@ -117,7 +117,7 @@ func main() {
 	nurseHandler := handler.NewNurseHandler(nurseService)
 	doctorHandler := handler.NewDoctorHandler(doctorService, admissionRepo, progressNoteRepo, nurseInstructionRepo, dischargeSummaryRepo)
 	appointmentHandler := handler.NewAppointmentHandler(appointmentService, patientRepo, doctorRepo)
-	prescriptionHandler := handler.NewPrescriptionHandler(prescriptionService)
+	prescriptionHandler := handler.NewPrescriptionHandler(prescriptionService, pharmacyService, labService)
 	pharmacyHandler := handler.NewPharmacyHandler(pharmacyService)
 	labHandler := handler.NewLabHandler(labService)
 	billingHandler := handler.NewBillingHandler(billingService)
@@ -171,6 +171,8 @@ func main() {
 		{
 			// Get users by role (for staff management pages)
 			protected.GET("/users", middleware.RequireRole("admin"), adminHandler.GetStaffByRole)
+			protected.PATCH("/users/:id", middleware.RequireRole("admin"), adminHandler.UpdateStaffUser)
+			protected.DELETE("/users/:id", middleware.RequireRole("admin"), adminHandler.DeleteStaffUser)
 
 			// Admin routes
 			admin := protected.Group("/admin")
@@ -256,7 +258,7 @@ func main() {
 				appointments.GET("/next-7-days", middleware.RequireRole("admin", "nurse", "doctor"), appointmentHandler.GetNext7DaysAppointments)
 				appointments.GET("/:id", appointmentHandler.GetAppointment)
 				appointments.GET("/:id/vitals", middleware.RequireRole("admin", "doctor", "nurse", "patient"), appointmentHandler.GetAppointmentVitals)
-				appointments.PATCH("/:id/status", middleware.RequireRole("admin", "doctor"), appointmentHandler.UpdateAppointmentStatus)
+				appointments.PATCH("/:id/status", middleware.RequireRole("admin", "doctor", "receptionist"), appointmentHandler.UpdateAppointmentStatus)
 				appointments.PATCH("/:id/vitals", middleware.RequireRole("admin", "nurse"), appointmentHandler.UpdateAppointmentVitals)
 			}
 
@@ -269,6 +271,8 @@ func main() {
 				prescriptions.GET("/:id", middleware.RequireRole("admin", "doctor", "nurse", "pharmacist", "patient"), prescriptionHandler.GetPrescription)
 				prescriptions.GET("/:id/medicines", middleware.RequireRole("admin", "doctor", "nurse", "pharmacist", "patient"), prescriptionHandler.GetPrescriptionMedicines)
 				prescriptions.PATCH("/:id/status", middleware.RequireRole("admin", "doctor"), prescriptionHandler.UpdatePrescriptionStatus)
+				prescriptions.POST("/:id/send-to-pharmacy", middleware.RequireRole("admin", "doctor"), prescriptionHandler.SendToPharmacy)
+				prescriptions.POST("/:id/send-to-lab", middleware.RequireRole("admin", "doctor"), prescriptionHandler.SendToLab)
 			}
 
 			// Pharmacy routes
@@ -296,19 +300,19 @@ func main() {
 			// Lab routes
 			lab := protected.Group("/lab")
 			{
-				lab.POST("/orders", middleware.RequireRole("admin", "doctor"), labHandler.CreateOrder)
-				lab.GET("/orders", middleware.RequireRole("admin", "doctor", "nurse"), labHandler.ListOrders)
-				lab.GET("/orders/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient"), labHandler.GetOrder)
-				lab.PATCH("/orders/:id/status", middleware.RequireRole("admin", "nurse"), labHandler.UpdateStatus)
-				lab.POST("/orders/:id/report", middleware.RequireRole("admin", "nurse"), labHandler.UploadReport)
-				lab.GET("/patients/:patient_id/orders", middleware.RequireRole("admin", "doctor", "nurse", "patient"), labHandler.GetPatientLabOrders)
+				lab.POST("/orders", middleware.RequireRole("admin", "doctor", "lab"), labHandler.CreateOrder)
+				lab.GET("/orders", middleware.RequireRole("admin", "doctor", "nurse", "lab"), labHandler.ListOrders)
+				lab.GET("/orders/:id", middleware.RequireRole("admin", "doctor", "nurse", "patient", "lab"), labHandler.GetOrder)
+				lab.PATCH("/orders/:id/status", middleware.RequireRole("admin", "nurse", "lab"), labHandler.UpdateStatus)
+				lab.POST("/orders/:id/report", middleware.RequireRole("admin", "nurse", "lab"), labHandler.UploadReport)
+				lab.GET("/patients/:patient_id/orders", middleware.RequireRole("admin", "doctor", "nurse", "patient", "lab"), labHandler.GetPatientLabOrders)
 			}
 
 			// Billing routes
 			billing := protected.Group("/billing")
 			{
 				billing.GET("", middleware.RequireRole("admin", "doctor", "patient"), billingHandler.ListBills)
-				billing.POST("/generate", middleware.RequireRole("admin", "doctor", "nurse"), billingHandler.GenerateBill)
+				billing.POST("/generate", middleware.RequireRole("admin", "doctor", "nurse", "receptionist"), billingHandler.GenerateBill)
 				billing.GET("/:id", middleware.RequireRole("admin", "doctor", "patient"), billingHandler.GetBill)
 				billing.PATCH("/:id/pay", middleware.RequireRole("admin", "patient"), billingHandler.PayBill)
 			}

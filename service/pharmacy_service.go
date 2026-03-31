@@ -40,6 +40,17 @@ type PharmacyService interface {
 	// Dispensing
 	Dispense(prescriptionID, staffID uuid.UUID) error
 	GetDispenseHistory(prescriptionID uuid.UUID) ([]model.DispenseHistory, error)
+
+	// Pharmacy requests
+	SendPrescriptionToPharmacy(input *CreatePharmacyRequestInput) (*model.PharmacyRequest, error)
+}
+
+type CreatePharmacyRequestInput struct {
+	PatientID      uuid.UUID
+	DoctorID       uuid.UUID
+	PrescriptionID uuid.UUID
+	Priority       string
+	Notes          string
 }
 
 type pharmacyService struct {
@@ -320,6 +331,48 @@ func (s *pharmacyService) GetDispenseHistory(prescriptionID uuid.UUID) ([]model.
 	}
 
 	return s.medicineRepo.GetDispenseHistoryByPrescriptionID(prescriptionID)
+}
+
+// SendPrescriptionToPharmacy sends a prescription to the pharmacy
+func (s *pharmacyService) SendPrescriptionToPharmacy(input *CreatePharmacyRequestInput) (*model.PharmacyRequest, error) {
+	if input == nil {
+		return nil, errors.New("input cannot be nil")
+	}
+
+	if input.PatientID == uuid.Nil {
+		return nil, errors.New("patient_id is required")
+	}
+
+	if input.DoctorID == uuid.Nil {
+		return nil, errors.New("doctor_id is required")
+	}
+
+	if input.PrescriptionID == uuid.Nil {
+		return nil, errors.New("prescription_id is required")
+	}
+
+	db := config.GetDB()
+
+	// Create pharmacy request
+	pharmacyRequest := &model.PharmacyRequest{
+		ID:             uuid.New(),
+		PatientID:      input.PatientID,
+		DoctorID:       input.DoctorID,
+		PrescriptionID: input.PrescriptionID,
+		RequestedAt:    time.Now().Format("2006-01-02 15:04"),
+		Status:         "pending",
+		Priority:       input.Priority,
+		Notes:          input.Notes,
+	}
+
+	if err := db.Create(pharmacyRequest).Error; err != nil {
+		return nil, fmt.Errorf("failed to create pharmacy request: %w", err)
+	}
+
+	// Preload relations
+	db.Preload("Patient").Preload("Doctor").Preload("Prescription").First(pharmacyRequest)
+
+	return pharmacyRequest, nil
 }
 
 // checkAndNotifyReorderLevels checks medicine stock levels and notifies admin if below threshold

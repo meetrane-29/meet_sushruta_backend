@@ -8,6 +8,7 @@ import (
 	"meet_sushruta/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type AdminHandler struct {
@@ -161,9 +162,84 @@ func (h *AdminHandler) GetStaffByRole(c *gin.Context) {
 		return
 	}
 
-	utils.OK(c, map[string]interface{}{
-		"data": staff,
-	})
+	utils.OK(c, staff)
+}
+
+// UpdateStaffUser updates HR fields for a staff user (pharmacy/lab/nurse)
+// PATCH /api/v1/users/:id
+// Requires: JWT token + admin role
+func (h *AdminHandler) UpdateStaffUser(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid user id")
+		return
+	}
+
+	type UpdateStaffRequest struct {
+		JoiningDate          int64   `json:"joining_date"`
+		Salary               float64 `json:"salary"`
+		AttendancePercentage float64 `json:"attendance_percentage"`
+		LeaveBalance         int     `json:"leave_balance"`
+	}
+
+	var req UpdateStaffRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Fail(c, 400, "invalid request")
+		return
+	}
+
+	var user model.User
+	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
+		utils.Fail(c, 404, "user not found")
+		return
+	}
+
+	if err := config.DB.Model(&user).
+		Select("joining_date", "salary", "attendance_percentage", "leave_balance").
+		Updates(model.User{
+			JoiningDate:          req.JoiningDate,
+			Salary:               req.Salary,
+			AttendancePercentage: req.AttendancePercentage,
+			LeaveBalance:         req.LeaveBalance,
+		}).Error; err != nil {
+		utils.Fail(c, 500, "failed to update user: "+err.Error())
+		return
+	}
+
+	// Return updated user (re-fetch to get fresh data)
+	config.DB.Where("id = ?", id).First(&user)
+	utils.OK(c, user)
+}
+
+// DeleteStaffUser soft-deletes a staff user
+// DELETE /api/v1/users/:id
+// Requires: JWT token + admin role
+func (h *AdminHandler) DeleteStaffUser(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		utils.Fail(c, 400, "invalid user id")
+		return
+	}
+
+	// Prevent deleting admin accounts
+	var user model.User
+	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
+		utils.Fail(c, 404, "user not found")
+		return
+	}
+	if user.Role == "admin" {
+		utils.Fail(c, 403, "cannot delete admin account")
+		return
+	}
+
+	if err := config.DB.Delete(&model.User{}, "id = ?", id).Error; err != nil {
+		utils.Fail(c, 500, "failed to delete user: "+err.Error())
+		return
+	}
+
+	utils.OK(c, map[string]string{"message": "user deleted successfully"})
 }
 
 // GetBedStats returns bed availability statistics ward-wise

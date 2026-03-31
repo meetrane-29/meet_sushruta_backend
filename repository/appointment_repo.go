@@ -222,6 +222,35 @@ func (r *appointmentRepository) GetTodayAppointments(page, limit int) ([]model.A
 	return appointments, total, err
 }
 
+// GetTodayAppointmentsByDoctor returns all appointments for a specific doctor today (for receptionist)
+func (r *appointmentRepository) GetTodayAppointmentsByDoctor(page, limit int, doctorID string) ([]model.Appointment, int64, error) {
+	var appointments []model.Appointment
+	var total int64
+
+	today := time.Now().Format("2006-01-02")
+
+	// Get total count with a separate query
+	if err := config.DB.Model(&model.Appointment{}).Where("appointment_date = ? AND doctor_id = ?", today, doctorID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+
+	// Fetch paginated results with a fresh query
+	err := config.DB.Where("appointment_date = ? AND doctor_id = ?", today, doctorID).
+		Preload("Patient").
+		Preload("Patient.User").
+		Preload("Doctor").
+		Preload("Doctor.User").
+		Offset(offset).
+		Limit(limit).
+		Order("appointment_time ASC").
+		Find(&appointments).Error
+
+	return appointments, total, err
+}
+
 // GetAllAppointmentsForNext7Days returns all appointments for next 7 days (for nurse)
 func (r *appointmentRepository) GetAllAppointmentsForNext7Days(page, limit int) ([]model.Appointment, int64, error) {
 	var appointments []model.Appointment

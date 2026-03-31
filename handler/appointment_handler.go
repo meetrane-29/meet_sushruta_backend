@@ -347,12 +347,17 @@ func (h *AppointmentHandler) GetTodayAppointments(c *gin.Context) {
 		}
 	}
 
-	appointments, total, err := h.appointmentService.GetTodayAppointments(page, limit)
+	doctorID := c.Query("doctor_id")
+	fmt.Printf("[GetTodayAppointments] Called with doctor_id: '%s' (empty: %v)\n", doctorID, doctorID == "")
+
+	appointments, total, err := h.appointmentService.GetTodayAppointments(page, limit, doctorID)
 	if err != nil {
+		fmt.Printf("[GetTodayAppointments] Error: %v\n", err)
 		utils.Fail(c, 500, err.Error())
 		return
 	}
 
+	fmt.Printf("[GetTodayAppointments] Returning %d appointments for doctor_id: %s\n", len(appointments), doctorID)
 	utils.OK(c, gin.H{
 		"appointments": appointments,
 		"total":        total,

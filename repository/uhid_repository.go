@@ -62,10 +62,12 @@ func (r *uhidRepository) GetUHIDByUHIDString(uhidString string) (*model.UHID, er
 // GetNextSequenceNumber gets the next sequence number for UHID generation
 func (r *uhidRepository) GetNextSequenceNumber(hospitalCode string) (int64, error) {
 	var maxSeqNum int64
-	currentYear := time.Now().Year()
+	now := time.Now()
+	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).UnixMilli()
+	endOfYear := time.Date(now.Year(), 12, 31, 23, 59, 59, 999999999, now.Location()).UnixMilli()
 
 	if err := r.db.Model(&model.UHID{}).
-		Where("hospital_code = ? AND YEAR(created_at) = ?", hospitalCode, currentYear).
+		Where("hospital_code = ? AND issued_date >= ? AND issued_date <= ?", hospitalCode, startOfYear, endOfYear).
 		Select("COALESCE(MAX(sequence_number), 0)").
 		Scan(&maxSeqNum).Error; err != nil {
 		return 0, fmt.Errorf("error getting sequence number: %w", err)
