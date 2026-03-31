@@ -85,6 +85,10 @@ func (s *authService) Login(email, password string) (*AuthResponse, error) {
 		return nil, errors.New("invalid email or password")
 	}
 
+	// Record last login time
+	now := time.Now().UnixMilli()
+	config.DB.Model(&user).UpdateColumn("last_login", now)
+
 	// Generate access token (15 minutes)
 	accessToken, err := s.generateAccessToken(&user)
 	if err != nil {

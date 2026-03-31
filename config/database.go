@@ -66,8 +66,22 @@ func AutoMigrate() error {
 		&model.OPDReceipt{},
 	}
 
-	if err := DB.AutoMigrate(models...); err != nil {
-		return fmt.Errorf("auto migration failed: %w", err)
+	// Pre-migration: add columns with defaults to avoid NOT NULL constraint errors on existing rows
+	preFixStatements := []string{
+		`ALTER TABLE uhids ADD COLUMN IF NOT EXISTS uh_id varchar(20) DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login bigint`,
+	}
+	for _, stmt := range preFixStatements {
+		if err := DB.Exec(stmt).Error; err != nil {
+			log.Printf("Pre-migration warning (non-fatal): %v", err)
+		}
+	}
+
+	// Migrate each model individually so one bad schema doesn't block everything
+	for _, m := range models {
+		if err := DB.AutoMigrate(m); err != nil {
+			log.Printf("AutoMigrate warning (non-fatal) for %T: %v", m, err)
+		}
 	}
 
 	log.Println("Database migrations completed successfully")

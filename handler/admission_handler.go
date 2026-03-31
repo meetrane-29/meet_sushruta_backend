@@ -2,9 +2,11 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"meet_sushruta/model"
 	"meet_sushruta/repository"
+	"meet_sushruta/service"
 	"meet_sushruta/utils"
 
 	"github.com/gin-gonic/gin"
@@ -13,11 +15,13 @@ import (
 
 type AdmissionHandler struct {
 	admissionRepo repository.AdmissionRepository
+	doctorService service.DoctorService
 }
 
-func NewAdmissionHandler(admissionRepo repository.AdmissionRepository) *AdmissionHandler {
+func NewAdmissionHandler(admissionRepo repository.AdmissionRepository, doctorService service.DoctorService) *AdmissionHandler {
 	return &AdmissionHandler{
 		admissionRepo: admissionRepo,
+		doctorService: doctorService,
 	}
 }
 
@@ -63,7 +67,7 @@ func convertAdmissionToResponse(admission *model.AdmissionRecord) *AdmissionResp
 	}
 
 	bedID := ""
-	if admission.BedID != uuid.Nil {
+	if admission.BedID != nil && *admission.BedID != uuid.Nil {
 		bedID = admission.BedID.String()
 	}
 
@@ -146,7 +150,7 @@ func (h *AdmissionHandler) GetActiveAdmissions(c *gin.Context) {
 // Query params:
 //   - page: page number (default 1)
 //   - limit: records per page (default 10, max 100)
-//   - status: filter by status (active, discharged, cancelled)
+//   - status: filter by status (active, discharged, cancelled) - comma-separated for multiple
 func (h *AdmissionHandler) GetAllAdmissions(c *gin.Context) {
 	page := 1
 	limit := 10
@@ -167,6 +171,26 @@ func (h *AdmissionHandler) GetAllAdmissions(c *gin.Context) {
 	if err != nil {
 		utils.Fail(c, 500, err.Error())
 		return
+	}
+
+	// Filter by status if provided
+	statusParam := c.Query("status")
+	if statusParam != "" {
+		statusList := strings.Split(statusParam, ",")
+		statusMap := make(map[string]bool)
+		for _, s := range statusList {
+			statusMap[strings.TrimSpace(s)] = true
+		}
+
+		// Filter admissions - keep only those with matching status
+		filtered := make([]model.AdmissionRecord, 0)
+		for _, adm := range admissions {
+			if statusMap[string(adm.Status)] {
+				filtered = append(filtered, adm)
+			}
+		}
+		admissions = filtered
+		total = int64(len(filtered))
 	}
 
 	responses := make([]AdmissionResponse, 0)
@@ -203,17 +227,19 @@ func (h *AdmissionHandler) GetAdmissionByID(c *gin.Context) {
 
 // CreateAdmission creates a new admission record
 // POST /api/v1/admissions
+// doctor_id is optional - if not provided, it will be extracted from JWT token
+// bed_id is optional - can be assigned later
 type CreateAdmissionRequest struct {
-	PatientID     uuid.UUID `json:"patient_id" binding:"required"`
-	DoctorID      uuid.UUID `json:"doctor_id" binding:"required"`
-	BedID         uuid.UUID `json:"bed_id"`
-	AdmissionDate string    `json:"admission_date" binding:"required"`
-	Reason        string    `json:"reason" binding:"required"`
-	Diagnosis     string    `json:"diagnosis"`
-	Ward          string    `json:"ward"`
-	RoomNumber    string    `json:"room_number"`
-	IsEmergency   bool      `json:"is_emergency"`
-	Notes         string    `json:"notes"`
+	PatientID     uuid.UUID  `json:"patient_id" binding:"required"`
+	DoctorID      uuid.UUID  `json:"doctor_id"`
+	BedID         *uuid.UUID `json:"bed_id"`
+	AdmissionDate string     `json:"admission_date" binding:"required"`
+	Reason        string     `json:"reason" binding:"required"`
+	Diagnosis     string     `json:"diagnosis"`
+	Ward          string     `json:"ward"`
+	RoomNumber    string     `json:"room_number"`
+	IsEmergency   bool       `json:"is_emergency"`
+	Notes         string     `json:"notes"`
 }
 
 func (h *AdmissionHandler) CreateAdmission(c *gin.Context) {
@@ -223,10 +249,35 @@ func (h *AdmissionHandler) CreateAdmission(c *gin.Context) {
 		return
 	}
 
+	// Get doctor ID from JWT token if not provided
+	doctorID := req.DoctorID
+	if doctorID == uuid.Nil {
+		userID, exists := c.Get("userID")
+		if !exists {
+			utils.Fail(c, 401, "unauthorized: user not found in token")
+			return
+		}
+
+		// Get doctor by user ID
+		doctor, err := h.doctorService.GetDoctorByUserID(userID.(uuid.UUID))
+		if err != nil {
+			utils.Fail(c, 400, "doctor not found for this user")
+			return
+		}
+		doctorID = doctor.ID
+	}
+
+	// Only set BedID if it was provided and is valid
+	var bedID *uuid.UUID
+	if req.BedID != nil && *req.BedID != uuid.Nil {
+		bedID = req.BedID
+	}
+	// else bedID remains nil which GORM will insert as NULL
+
 	admission := &model.AdmissionRecord{
 		PatientID:     req.PatientID,
-		DoctorID:      req.DoctorID,
-		BedID:         req.BedID,
+		DoctorID:      doctorID,
+		BedID:         bedID,
 		AdmissionDate: req.AdmissionDate,
 		Reason:        req.Reason,
 		Diagnosis:     req.Diagnosis,

@@ -19,7 +19,7 @@ type AdmissionRecord struct {
 	Patient       *Patient        `gorm:"foreignKey:PatientID;references:ID" json:"patient,omitempty"`
 	DoctorID      uuid.UUID       `gorm:"type:uuid;not null;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"doctor_id"`
 	Doctor        *Doctor         `gorm:"foreignKey:DoctorID;references:ID" json:"doctor,omitempty"`
-	BedID         uuid.UUID       `gorm:"type:uuid;index;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"bed_id"`
+	BedID         *uuid.UUID      `gorm:"type:uuid;index;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"bed_id"`
 	Bed           *Bed            `gorm:"foreignKey:BedID;references:ID" json:"bed,omitempty"`
 	AdmissionDate string          `gorm:"not null;index" json:"admission_date"` // YYYY-MM-DD HH:MM
 	DischargeDate *string         `gorm:"index" json:"discharge_date"`          // YYYY-MM-DD HH:MM (null if active)

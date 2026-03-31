@@ -48,6 +48,7 @@ type BedResponse struct {
 	BedType               string  `json:"bed_type"`
 	Status                string  `json:"status"`
 	PatientID             *string `json:"patient_id"`
+	PatientName           string  `json:"patient_name"`
 	AdmittedAt            *string `json:"admitted_at"`
 	DischargedAt          *string `json:"discharged_at"`
 	Features              string  `json:"features"`
@@ -315,10 +316,18 @@ func (h *BedHandler) GetAllBedsWithOccupancy(c *gin.Context) {
 	var beds []model.Bed
 	var total int64
 
-	query := config.DB.Model(&model.Bed{})
-	query.Count(&total)
+	// Count and Find must use separate queries to avoid GORM query state pollution
+	if err := config.DB.Model(&model.Bed{}).Where("deleted_at IS NULL").Count(&total).Error; err != nil {
+		utils.Fail(c, 500, err.Error())
+		return
+	}
 
-	if err := query.Offset(offset).Limit(limit).Find(&beds).Error; err != nil {
+	if err := config.DB.
+		Preload("Patient").
+		Preload("Patient.User").
+		Where("deleted_at IS NULL").
+		Offset(offset).Limit(limit).
+		Find(&beds).Error; err != nil {
 		utils.Fail(c, 500, err.Error())
 		return
 	}
@@ -348,6 +357,11 @@ func convertBedToResponse(bed *model.Bed) *BedResponse {
 		patientID = &patientIDStr
 	}
 
+	patientName := ""
+	if bed.Patient != nil && bed.Patient.User != nil {
+		patientName = bed.Patient.User.FirstName + " " + bed.Patient.User.LastName
+	}
+
 	return &BedResponse{
 		ID:                    bed.ID.String(),
 		BedNumber:             bed.BedNumber,
@@ -357,6 +371,7 @@ func convertBedToResponse(bed *model.Bed) *BedResponse {
 		BedType:               bed.BedType,
 		Status:                bed.Status,
 		PatientID:             patientID,
+		PatientName:           patientName,
 		AdmittedAt:            bed.AdmittedAt,
 		DischargedAt:          bed.DischargedAt,
 		Features:              bed.Features,

@@ -19,6 +19,7 @@ type User struct {
 	Salary               float64        `json:"salary"`
 	AttendancePercentage float64        `json:"attendance_percentage"`
 	LeaveBalance         int            `json:"leave_balance"`
+	LastLogin            *int64         `gorm:"index" json:"last_login"`
 	CreatedAt            int64          `gorm:"autoCreateTime:milli" json:"created_at"`
 	UpdatedAt            int64          `gorm:"autoUpdateTime:milli" json:"updated_at"`
 	DeletedAt            gorm.DeletedAt `gorm:"index" json:"deleted_at"`

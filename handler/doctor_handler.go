@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"meet_sushruta/config"
 	"meet_sushruta/model"
 	"meet_sushruta/repository"
 	"meet_sushruta/service"
@@ -1229,4 +1230,58 @@ func (h *DoctorHandler) GetDoctorPerformanceMetrics(c *gin.Context) {
 	}
 
 	utils.OK(c, metrics)
+}
+
+// GetActiveDoctorsToday returns doctors who logged in today
+// GET /api/v1/doctors/active-today
+// Requires: admin or receptionist role
+func (h *DoctorHandler) GetActiveDoctorsToday(c *gin.Context) {
+	// Get start of today in milliseconds
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+
+	type ActiveDoctorResponse struct {
+		DoctorID       string `json:"doctor_id"`
+		UserID         string `json:"user_id"`
+		FirstName      string `json:"first_name"`
+		LastName       string `json:"last_name"`
+		Specialization string `json:"specialization"`
+		Department     string `json:"department"`
+		LastLogin      int64  `json:"last_login"`
+	}
+
+	var doctors []model.Doctor
+	if err := config.DB.
+		Joins("JOIN users ON users.id = doctors.user_id").
+		Where("users.role = ? AND users.last_login >= ? AND users.deleted_at IS NULL", "doctor", startOfDay).
+		Preload("User").
+		Find(&doctors).Error; err != nil {
+		utils.Fail(c, 500, "failed to fetch active doctors: "+err.Error())
+		return
+	}
+
+	responses := make([]ActiveDoctorResponse, 0, len(doctors))
+	for _, d := range doctors {
+		var lastLogin int64
+		if d.User != nil && d.User.LastLogin != nil {
+			lastLogin = *d.User.LastLogin
+		}
+		resp := ActiveDoctorResponse{
+			DoctorID:       d.ID.String(),
+			Specialization: d.Specialization,
+			Department:     d.Department,
+			LastLogin:      lastLogin,
+		}
+		if d.User != nil {
+			resp.UserID = d.User.ID.String()
+			resp.FirstName = d.User.FirstName
+			resp.LastName = d.User.LastName
+		}
+		responses = append(responses, resp)
+	}
+
+	utils.OK(c, gin.H{
+		"doctors": responses,
+		"total":   len(responses),
+	})
 }
